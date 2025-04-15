@@ -14,23 +14,39 @@ pub const PpmError = error{
 };
 
 /// Write a ppm image file to disk.
-pub fn create_file(image_width: usize, image_height: usize, path: []const u8, allocator: Allocator) !void {
+pub fn createFile(image_width: usize, image_height: usize, path: []const u8, allocator: Allocator) !void {
+    // Create buffered writer to stdout.
+    const stdout_file = std.io.getStdOut().writer();
+    var bw = std.io.bufferedWriter(stdout_file);
+    const stdout = bw.writer();
+
+    // Create ppm file.
     const file = try std.fs.cwd().createFile(path, std.fs.File.CreateFlags{ .read = true });
     defer file.close();
 
-    var data: []const u8 = try std.fmt.allocPrint(allocator, "{s}\n{d} {d}\n{d}\n", .{ MAGIC_NUMBER, image_width, image_height, MAX_COLOUR });
+    const file_writer = file.writer();
+    var buffer = std.ArrayList(u8).init(allocator);
+    const buf_writer = buffer.writer();
+
+    try buf_writer.print("{s}\n{d} {d}\n{d}\n", .{ MAGIC_NUMBER, image_width, image_height, MAX_COLOUR });
 
     const c: f64 = 255.999;
     for (0..image_height) |j| {
+        // Progress indicator.
+        try stdout.print("Scanlines remaining: {d}\r", .{image_height - j});
+        try bw.flush();
+
         for (0..image_width) |i| {
-            // Normalize RBG triplets to 0-255 values
+            // Scale RBG components from 0.0-1.0 floats to 0-255 integers.
             const r: u8 = @intFromFloat(c * (@as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(image_width - 1))));
             const g: u8 = @intFromFloat(c * (@as(f64, @floatFromInt(j)) / @as(f64, @floatFromInt(image_height - 1))));
             const b: u8 = @intFromFloat(c * @as(f64, 0.0));
 
-            data = try std.fmt.allocPrint(allocator, "{s}{d} {d} {d}\n", .{ data, r, g, b });
+            try buf_writer.print("{d} {d} {d}\n", .{ r, g, b });
         }
     }
 
-    try file.writeAll(data);
+    try file_writer.writeAll(buffer.items);
+    try stdout.print("\rDone.                     \n", .{});
+    try bw.flush();
 }

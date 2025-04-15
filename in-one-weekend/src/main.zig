@@ -1,7 +1,7 @@
 const std = @import("std");
 const ppm = @import("ppm.zig");
 
-const ppm_fname = "image01.ppm";
+const ppm_fname = "image02.ppm";
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -9,43 +9,8 @@ pub fn main() !void {
 
     const allocator = arena.allocator();
 
-    const image_width: usize = 256;
-    const image_height: usize = 256;
-
+    const image_width: usize = 5 * 256;
+    const image_height: usize = 5 * 256;
     const path = ppm.IMG_DIR ++ ppm_fname;
-    // std.debug.print("filename: {s}\n", .{path});
-
-    try ppm.create_file(image_width, image_height, path, allocator);
-
-    // // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    //
-    // // stdout is for the actual output of your application, for example if you
-    // // are implementing gzip, then only the compressed bytes should be sent to
-    // // stdout, not any debugging messages.
-    // const stdout_file = std.io.getStdOut().writer();
-    // var bw = std.io.bufferedWriter(stdout_file);
-    // const stdout = bw.writer();
-    //
-    // try stdout.print("Run `zig build test` to run the tests.\n", .{});
-    //
-    // try bw.flush(); // Don't forget to flush!
+    try ppm.createFile(image_width, image_height, path, allocator);
 }
-
-// test "simple test" {
-//     var list = std.ArrayList(i32).init(std.testing.allocator);
-//     defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-//     try list.append(42);
-//     try std.testing.expectEqual(@as(i32, 42), list.pop());
-// }
-//
-// test "fuzz example" {
-//     const Context = struct {
-//         fn testOne(context: @This(), input: []const u8) anyerror!void {
-//             _ = context;
-//             // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-//             try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-//         }
-//     };
-//     try std.testing.fuzz(Context{}, Context.testOne, .{});
-// }
