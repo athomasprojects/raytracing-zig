@@ -46,6 +46,10 @@ pub const Vec3 = struct {
         return v[2];
     }
 
+    pub fn scale(v: F64x3, t: f64) F64x3 {
+        return v * @as(F64x3, @splat(t));
+    }
+
     pub fn divByScalar(v: F64x3, t: f64) F64x3 {
         return v / @as(F64x3, @splat(t));
     }

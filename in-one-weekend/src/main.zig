@@ -1,7 +1,10 @@
 const std = @import("std");
 const ppm = @import("ppm.zig");
-const vec3 = @import("vec3.zig");
-const Vec3 = vec3.Vec3;
+const vec = @import("vec.zig");
+const Ray = @import("ray.zig").Ray;
+const Vec3 = vec.Vec3;
+const Point3 = vec.Point3;
+const Colour = vec.Colour;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -53,6 +56,12 @@ test "vec3.xyz" {
     try expect(z == 3);
 }
 
+test "vec3.scale" {
+    var v = Vec3.create(1, 2, -3.5);
+    v = Vec3.scale(v, 2);
+    try expect(std.meta.eql(v, Vec3.create(2, 4, -7)));
+}
+
 test "vec3.divByScalar" {
     var v = Vec3.create(1, 2, 3);
     v = Vec3.divByScalar(v, 2);
@@ -96,8 +105,8 @@ test "vec3.length" {
     const v = Vec3.create(1, 0, 1);
     const w = Vec3.create(1, 1, 1);
     try expect(Vec3.length(u) == 1);
-    try expect(Vec3.length(v) == vec3.sqrt2);
-    try expect(Vec3.length(w) == vec3.sqrt3);
+    try expect(Vec3.length(v) == vec.sqrt2);
+    try expect(Vec3.length(w) == vec.sqrt3);
 }
 
 test "vec3.unitVector" {

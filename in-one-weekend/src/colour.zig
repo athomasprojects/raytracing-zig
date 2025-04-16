@@ -1,8 +1,8 @@
 const std = @import("std");
 const sqrt = std.math.sqrt;
 
-const Vec3 = @import("vec3.zig").Vec3;
-const Colour = @import("vec3.zig").Colour;
+const Vec3 = @import("vec.zig").Vec3;
+const Colour = @import("vec.zig").Colour;
 
 pub fn writeColour(writer: anytype, pixel_colour: Colour) !void {
     const r, const g, const b = pixel_colour;
@@ -13,5 +13,6 @@ pub fn writeColour(writer: anytype, pixel_colour: Colour) !void {
     const g_byte: u8 = @intFromFloat(c * g);
     const b_byte: u8 = @intFromFloat(c * b);
 
+    // Write out pixel colour components.
     try writer.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
 }
