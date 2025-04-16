@@ -1,5 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Colour = @import("vec3.zig").Colour;
+const Vec3 = @import("vec3.zig").Vec3;
+const colour = @import("colour.zig");
 
 const MAGIC_NUMBER = "P3";
 pub const IMG_DIR = "images/ppm/";
@@ -30,22 +33,22 @@ pub fn createFile(image_width: usize, image_height: usize, path: []const u8, all
 
     try buf_writer.print("{s}\n{d} {d}\n{d}\n", .{ MAGIC_NUMBER, image_width, image_height, MAX_COLOUR });
 
-    const c: f64 = 255.999;
+    var pixel_colour: Colour = Vec3.createEmpty();
     for (0..image_height) |j| {
         // Progress indicator.
         try stdout.print("Scanlines remaining: {d}\r", .{image_height - j});
         try bw.flush();
 
         for (0..image_width) |i| {
-            // Scale RBG components from 0.0-1.0 floats to 0-255 integers.
-            const r: u8 = @intFromFloat(c * (@as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(image_width - 1))));
-            const g: u8 = @intFromFloat(c * (@as(f64, @floatFromInt(j)) / @as(f64, @floatFromInt(image_height - 1))));
-            const b: u8 = @intFromFloat(c * @as(f64, 0.0));
-
-            try buf_writer.print("{d} {d} {d}\n", .{ r, g, b });
+            // Render
+            pixel_colour = Vec3.create(
+                @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(image_width - 1)),
+                @as(f64, @floatFromInt(j)) / @as(f64, @floatFromInt(image_height - 1)),
+                @as(f64, 0.0),
+            );
+            try colour.writeColour(buf_writer, pixel_colour);
         }
     }
-
     try file_writer.writeAll(buffer.items);
     try stdout.print("\rDone.                     \n", .{});
     try bw.flush();

@@ -15,6 +15,7 @@ pub const unit_vec_y = F64x3{ 0, 1, 0 };
 pub const unit_vec_z = F64x3{ 0, 0, 1 };
 
 pub const Point3 = F64x3;
+pub const Colour = F64x3;
 
 pub const Vec3 = struct {
     pub fn createEmpty() F64x3 {
