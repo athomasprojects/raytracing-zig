@@ -4,17 +4,13 @@ const Colour = @import("vec.zig").Colour;
 const Vec3 = @import("vec.zig").Vec3;
 const colour = @import("colour.zig");
 
-const MAGIC_NUMBER = "P3";
-pub const IMG_DIR = "images/ppm/";
-
 // Constants
+pub const PPM_DIR = "images/ppm/";
+
+const MAGIC_NUMBER = "P3";
 const MAX_COLOUR = 255;
 const DEFAULT_IMAGE_WIDTH = MAX_COLOUR;
 const DEFAULT_IMAGE_HEIGHT = DEFAULT_IMAGE_WIDTH;
-
-pub const PpmError = error{
-    FileError,
-};
 
 /// Write a ppm image file to disk.
 pub fn createFile(image_width: usize, image_height: usize, path: []const u8, allocator: Allocator) !void {

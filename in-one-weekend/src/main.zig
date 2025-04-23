@@ -22,31 +22,31 @@ pub fn main() !void {
     try ppm.createFile(image_width, image_height, path, allocator);
 }
 
-test "vec3.create" {
+test "vec.create" {
     const v = Vec3.create(1, 2, 3);
     try expect(std.meta.eql(v, @Vector(3, f64){ 1, 2, 3 }));
 }
 
-test "vec3.createEmpty" {
+test "vec.createEmpty" {
     const v = Vec3.createEmpty();
     const expected: @Vector(3, f64) = [_]f64{0} ** 3;
     try expect(std.meta.eql(v, expected));
 }
 
-test "vec3.fromScalar" {
+test "vec.fromScalar" {
     const c: f64 = 5.018972;
     const v = Vec3.fromScalar(c);
     const expected: @Vector(3, f64) = [_]f64{c} ** 3;
     try expect(std.meta.eql(v, expected));
 }
 
-test "vec3.loadArr" {
+test "vec.loadArr" {
     const arr: [3]f64 = .{ 2, 5, -6.9 };
     const v = Vec3.loadArr(arr);
     try expect(std.meta.eql(v, arr));
 }
 
-test "vec3.xyz" {
+test "vec.xyz" {
     const v = Vec3.create(1, 2, 3);
     const x = Vec3.x(v);
     const y = Vec3.y(v);
@@ -56,19 +56,19 @@ test "vec3.xyz" {
     try expect(z == 3);
 }
 
-test "vec3.scale" {
+test "vec.scale" {
     var v = Vec3.create(1, 2, -3.5);
     v = Vec3.scale(v, 2);
     try expect(std.meta.eql(v, Vec3.create(2, 4, -7)));
 }
 
-test "vec3.divByScalar" {
+test "vec.divScalar" {
     var v = Vec3.create(1, 2, 3);
-    v = Vec3.divByScalar(v, 2);
+    v = Vec3.divScalar(v, 2);
     try expect(std.meta.eql(v, [_]f64{ 0.5, 1, 1.5 }));
 }
 
-test "vec3.dot" {
+test "vec.dot" {
     const u = Vec3.create(1, 0, 0);
     const v = Vec3.create(0, 1, 0);
 
@@ -78,11 +78,11 @@ test "vec3.dot" {
     try expect(Vec3.dot(a, b) == 0.5);
 }
 
-test "vec3.cross" {
+test "vec.cross" {
     const x = Vec3.create(1, 0, 0);
     const y = Vec3.create(0, 1, 0);
     const z = Vec3.create(0, 0, 1);
-    const zero = [_]f64{0} ** 3;
+    const zero = Vec3.createEmpty();
     try expectEqual(Vec3.cross(x, y), z);
     try expectEqual(Vec3.cross(y, z), x);
     try expectEqual(Vec3.cross(z, x), y);
@@ -91,16 +91,19 @@ test "vec3.cross" {
     try expectEqual(Vec3.cross(-x, x), zero);
 }
 
-test "vec3.lengthSquared" {
-    const v = Vec3.create(1, 1, 1);
+test "vec.lengthSquared" {
     const u = Vec3.create(1, 1, 0);
-    const v_lsq = Vec3.lengthSquared(v);
-    const u_lsq = Vec3.lengthSquared(u);
-    try expect(v_lsq == 3);
-    try expect(u_lsq == 2);
+    const v = Vec3.create(1, 1, 1);
+    const w = Vec3.create(-1, 1, 0);
+    const u_l2 = Vec3.lengthSquared(u);
+    const v_l2 = Vec3.lengthSquared(v);
+    const w_l2 = Vec3.lengthSquared(w);
+    try expect(u_l2 == 2);
+    try expect(v_l2 == 3);
+    try expect(w_l2 == 2);
 }
 
-test "vec3.length" {
+test "vec.length" {
     const u = Vec3.create(-1, 0, 0);
     const v = Vec3.create(1, 0, 1);
     const w = Vec3.create(1, 1, 1);
@@ -109,29 +112,29 @@ test "vec3.length" {
     try expect(Vec3.length(w) == vec.sqrt3);
 }
 
-test "vec3.unitVector" {
+test "vec.normalize" {
     const v = Vec3.create(1, -1, -1);
-    const v_norm = Vec3.unitVector(v);
+    const v_norm = Vec3.normalize(v);
     const norm_vlen = Vec3.length(v_norm);
     try expect(norm_vlen == 1);
 }
 
-test "vec3.containsTwo" {
+test "vec.hasTwoOnes" {
     const u = Vec3.create(1, -1, 0);
     const v = Vec3.create(1, 1, 0);
     const w = Vec3.create(-1, -1, 1);
 
-    try expect(Vec3.containsTwo(@abs(u), 1));
-    try expect(Vec3.containsTwo(v, 1));
-    try expect(!Vec3.containsTwo(@abs(w), 1));
+    try expect(Vec3.hasTwoOnes(u));
+    try expect(Vec3.hasTwoOnes(v));
+    try expect(!Vec3.hasTwoOnes(w));
 }
 
-test "vec3.containsThree" {
+test "vec.isAllOnes" {
     const u = Vec3.create(1, -1, 1);
     const v = Vec3.create(1, 1, -1);
     const w = Vec3.create(-1, -1, -1);
 
-    try expect(Vec3.containsThree(@abs(u), 1));
-    try expect(Vec3.containsThree(@abs(v), 1));
-    try expect(Vec3.containsThree(@abs(w), 1));
+    try expect(Vec3.isAllOnes(u));
+    try expect(Vec3.isAllOnes(v));
+    try expect(Vec3.isAllOnes(w));
 }
