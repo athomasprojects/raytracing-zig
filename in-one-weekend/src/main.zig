@@ -9,7 +9,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 /// Returns `true` if a ray intersects a sphere.
-fn hitSphere(center: Point3, radius: f64, ray: *Ray) bool {
+fn hitSphere(center: Point3, radius: f64, ray: *Ray) f64 {
     const oc: Vec3 = center - ray.orig; // vector from the ray origin to the center of the sphere
     const a: f64 = vec.lengthSquared(ray.dir);
     const b: f64 = -2 * vec.dot(ray.dir, oc);
@@ -18,14 +18,23 @@ fn hitSphere(center: Point3, radius: f64, ray: *Ray) bool {
     // discriminant < 0 - no solutions (ray does not hit)
     // discriminant == 0 - 1 solution (ray intersects sphere at one point tangent to the sphere)
     // discriminant > 0 - 2 solutions (ray intersects the sphere at 2 unique points)
-    return (b * b - 4 * a * c) >= 0;
+    const discriminant: f64 = b * b - 4 * a * c;
+
+    if (discriminant < 0) {
+        return -1;
+    } else {
+        return (-b - std.math.sqrt(discriminant)) / (2 * a);
+    }
 }
 
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
 fn rayColour(r: *Ray) Colour {
-    if (hitSphere(.{ 0, 0, 1 }, 0.5, r)) {
-        // Set pixel colour to red if ray is within or on the sphere.
-        return .{ 1, 0, 0 };
+    const t: f64 = hitSphere(.{ 0, 0, -1 }, 0.5, r);
+
+    // 2 intersection points
+    if (t > 0) {
+        const N: Vec3 = vec.normalize(r.at(t) - Vec3{ 0, 0, -1 });
+        return vec.scale(Colour{ vec.x(N) + 1, vec.y(N) + 1, vec.z(N) + 1 }, 0.5);
     }
 
     const unit_direction: Vec3 = vec.normalize(r.dir);
