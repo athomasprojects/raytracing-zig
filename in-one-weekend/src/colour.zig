@@ -1,7 +1,5 @@
 const std = @import("std");
-const sqrt = std.math.sqrt;
 
-const Vec3 = @import("vec.zig").Vec3;
 const Colour = @import("vec.zig").Colour;
 
 pub fn writeColour(writer: anytype, pixel_colour: Colour) !void {
