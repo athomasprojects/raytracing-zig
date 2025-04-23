@@ -8,8 +8,26 @@ const Colour = vec.Colour;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
+/// Returns `true` if a ray intersects a sphere.
+fn hitSphere(center: Point3, radius: f64, ray: *Ray) bool {
+    const oc: Vec3 = center - ray.orig; // vector from the ray origin to the center of the sphere
+    const a: f64 = vec.lengthSquared(ray.dir);
+    const b: f64 = -2 * vec.dot(ray.dir, oc);
+    const c: f64 = vec.lengthSquared(oc) - radius * radius;
+
+    // discriminant < 0 - no solutions (ray does not hit)
+    // discriminant == 0 - 1 solution (ray intersects sphere at one point tangent to the sphere)
+    // discriminant > 0 - 2 solutions (ray intersects the sphere at 2 unique points)
+    return (b * b - 4 * a * c) >= 0;
+}
+
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
 fn rayColour(r: *Ray) Colour {
+    if (hitSphere(.{ 0, 0, 1 }, 0.5, r)) {
+        // Set pixel colour to red if ray is within or on the sphere.
+        return .{ 1, 0, 0 };
+    }
+
     const unit_direction: Vec3 = vec.normalize(r.dir);
     const a: f64 = 0.5 * (vec.y(unit_direction) + 1.0);
     return vec.scale(Colour{ 1, 1, 1 }, 1.0 - a) + vec.scale(Colour{ 0.5, 0.7, 1 }, a);
@@ -22,7 +40,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image02.ppm";
+    const ppm_fname = "image03.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Calculate the image height, and ensure that it is at least 1.
