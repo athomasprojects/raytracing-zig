@@ -11,14 +11,6 @@ pub const Ray = struct {
         return .{ .orig = orig, .dir = dir };
     }
 
-    // pub inline fn origin(self: Ray) Point3 {
-    //     return self.orig;
-    // }
-    //
-    // pub inline fn direction(self: Ray) F64x3 {
-    //     return self.dir;
-    // }
-
     pub fn at(self: Ray, t: f64) Point3 {
         return self.orig + Vec3.scale(self, t);
     }
