@@ -8,22 +8,21 @@ const Colour = vec.Colour;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-/// Returns `true` if a ray intersects a sphere.
 fn hitSphere(center: Point3, radius: f64, ray: *Ray) f64 {
     const oc: Vec3 = center - ray.orig; // vector from the ray origin to the center of the sphere
     const a: f64 = vec.lengthSquared(ray.dir);
-    const b: f64 = -2 * vec.dot(ray.dir, oc);
+    const h: f64 = vec.dot(ray.dir, oc);
     const c: f64 = vec.lengthSquared(oc) - radius * radius;
 
     // discriminant < 0 - no solutions (ray does not hit)
     // discriminant == 0 - 1 solution (ray intersects sphere at one point tangent to the sphere)
     // discriminant > 0 - 2 solutions (ray intersects the sphere at 2 unique points)
-    const discriminant: f64 = b * b - 4 * a * c;
+    const discriminant: f64 = h * h - a * c;
 
     if (discriminant < 0) {
         return -1;
     } else {
-        return (-b - std.math.sqrt(discriminant)) / (2 * a);
+        return (h - std.math.sqrt(discriminant)) / a;
     }
 }
 
@@ -49,7 +48,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image03.ppm";
+    const ppm_fname = "image04.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Calculate the image height, and ensure that it is at least 1.
