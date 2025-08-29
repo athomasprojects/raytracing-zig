@@ -15,11 +15,9 @@ pub const unit_vec_x = Vec3{ 1, 0, 0 };
 pub const unit_vec_y = Vec3{ 0, 1, 0 };
 pub const unit_vec_z = Vec3{ 0, 0, 1 };
 
-pub inline fn createEmpty() Vec3 {
-    return @splat(0);
-}
+pub const empty: Vec3 = @splat(0);
 
-pub inline fn create(e0: f64, e1: f64, e2: f64) Vec3 {
+pub inline fn init(e0: f64, e1: f64, e2: f64) Vec3 {
     return .{ e0, e1, e2 };
 }
 
@@ -28,7 +26,8 @@ pub inline fn fromScalar(value: f64) Vec3 {
 }
 
 pub inline fn loadArr(arr: [3]f64) Vec3 {
-    return .{ arr[0], arr[1], arr[2] };
+    // return .{ arr[0], arr[1], arr[2] };
+    return arr;
 }
 
 pub inline fn x(v: Vec3) f64 {
@@ -105,10 +104,10 @@ pub fn isAllOnes(v: Vec3) bool {
 
 pub fn isUnitAxis(v: Vec3) bool {
     const abs_v: Vec3 = @abs(v);
-    return isEql(abs_v, unit_vec_x) or isEql(abs_v, unit_vec_y) or isEql(abs_v, unit_vec_z);
+    return eql(abs_v, unit_vec_x) or eql(abs_v, unit_vec_y) or eql(abs_v, unit_vec_z);
 }
 
-pub inline fn isEql(u: Vec3, v: Vec3) bool {
+pub inline fn eql(u: Vec3, v: Vec3) bool {
     return @reduce(.And, u == v);
 }
 
@@ -116,32 +115,31 @@ pub fn print(v: Vec3) void {
     std.debug.print("{{{d}, {d}, {d}}}\n", .{ v[0], v[1], v[2] });
 }
 
-test "vec.create" {
-    const v = create(1, 2, 3);
+test "init vector" {
+    const v = init(1, 2, 3);
     try expect(std.meta.eql(v, @Vector(3, f64){ 1, 2, 3 }));
 }
 
-test "vec.createEmpty" {
-    const v = createEmpty();
-    const expected: @Vector(3, f64) = [_]f64{0} ** 3;
-    try expect(std.meta.eql(v, expected));
+test "empty vector" {
+    const v = empty;
+    try expect(std.meta.eql(v, [_]f64{0} ** 3));
+    try expect(std.meta.eql(v, @splat(0)));
 }
 
-test "vec.fromScalar" {
+test "create a vector from a scalar" {
     const c: f64 = 5.018972;
     const v = fromScalar(c);
     const expected: @Vector(3, f64) = [_]f64{c} ** 3;
     try expect(std.meta.eql(v, expected));
 }
 
-test "vec.loadArr" {
+test "create a vector from an array" {
     const arr: [3]f64 = .{ 2, 5, -6.9 };
-    const v = loadArr(arr);
-    try expect(std.meta.eql(v, arr));
+    try expect(std.meta.eql(loadArr(arr), arr));
 }
 
-test "vec.xyz" {
-    const v = create(1, 2, 3);
+test "access vector components" {
+    const v = init(1, 2, 3);
     const vx = x(v);
     const vy = y(v);
     const vz = z(v);
@@ -150,33 +148,33 @@ test "vec.xyz" {
     try expect(vz == 3);
 }
 
-test "vec.scale" {
-    var v = create(1, 2, -3.5);
+test "scale" {
+    var v = init(1, 2, -3.5);
     v = scale(v, 2);
-    try expect(std.meta.eql(v, create(2, 4, -7)));
+    try expect(std.meta.eql(v, init(2, 4, -7)));
 }
 
-test "vec.divScalar" {
-    var v = create(1, 2, 3);
+test "scalar division" {
+    var v = init(1, 2, 3);
     v = divScalar(v, 2);
     try expect(std.meta.eql(v, [_]f64{ 0.5, 1, 1.5 }));
 }
 
-test "vec.dot" {
-    const u = create(1, 0, 0);
-    const v = create(0, 1, 0);
+test "dot product" {
+    const u = init(1, 0, 0);
+    const v = init(0, 1, 0);
 
-    const a = create(1, -1, 1);
-    const b = create(0.5, 1, 1);
+    const a = init(1, -1, 1);
+    const b = init(0.5, 1, 1);
     try expect(dot(u, v) == 0);
     try expect(dot(a, b) == 0.5);
 }
 
-test "vec.cross" {
-    const xx = create(1, 0, 0);
-    const yy = create(0, 1, 0);
-    const zz = create(0, 0, 1);
-    const zero = createEmpty();
+test "cross product" {
+    const xx = init(1, 0, 0);
+    const yy = init(0, 1, 0);
+    const zz = init(0, 0, 1);
+    const zero = empty;
     try expectEqual(cross(xx, yy), zz);
     try expectEqual(cross(yy, zz), xx);
     try expectEqual(cross(zz, xx), yy);
@@ -185,10 +183,10 @@ test "vec.cross" {
     try expectEqual(cross(-xx, xx), zero);
 }
 
-test "vec.lengthSquared" {
-    const u = create(1, 1, 0);
-    const v = create(1, 1, 1);
-    const w = create(-1, 1, 0);
+test "length squared" {
+    const u = init(1, 1, 0);
+    const v = init(1, 1, 1);
+    const w = init(-1, 1, 0);
     const u_l2 = lengthSquared(u);
     const v_l2 = lengthSquared(v);
     const w_l2 = lengthSquared(w);
@@ -197,36 +195,36 @@ test "vec.lengthSquared" {
     try expect(w_l2 == 2);
 }
 
-test "vec.length" {
-    const u = create(-1, 0, 0);
-    const v = create(1, 0, 1);
-    const w = create(1, 1, 1);
+test "length" {
+    const u = init(-1, 0, 0);
+    const v = init(1, 0, 1);
+    const w = init(1, 1, 1);
     try expect(length(u) == 1);
     try expect(length(v) == sqrt2);
     try expect(length(w) == sqrt3);
 }
 
-test "vec.normalize" {
-    const v = create(1, -1, -1);
+test "normalize" {
+    const v = init(1, -1, -1);
     const v_norm = normalize(v);
     const norm_vlen = length(v_norm);
     try expect(norm_vlen == 1);
 }
 
-test "vec.hasTwoOnes" {
-    const u = create(1, -1, 0);
-    const v = create(1, 1, 0);
-    const w = create(-1, -1, 1);
+test "two elements are +/- 1" {
+    const u = init(1, -1, 0);
+    const v = init(1, 1, 0);
+    const w = init(-1, -1, 1);
 
     try expect(hasTwoOnes(u));
     try expect(hasTwoOnes(v));
     try expect(!hasTwoOnes(w));
 }
 
-test "vec.isAllOnes" {
-    const u = create(1, -1, 1);
-    const v = create(1, 1, -1);
-    const w = create(-1, -1, -1);
+test "all +/- ones" {
+    const u = init(1, -1, 1);
+    const v = init(1, 1, -1);
+    const w = init(-1, -1, -1);
 
     try expect(isAllOnes(u));
     try expect(isAllOnes(v));

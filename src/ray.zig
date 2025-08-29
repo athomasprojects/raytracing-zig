@@ -5,14 +5,22 @@ const Point3 = @import("vec.zig").Point3;
 const Vec3 = vec.Vec3;
 
 pub const Ray = struct {
-    orig: Point3,
+    origin: Point3,
     dir: Vec3,
 
+    pub const empty: Ray = .{
+        .origin = vec.empty,
+        .dir = vec.empty,
+    };
+
     pub fn init(orig: Point3, dir: Vec3) Ray {
-        return .{ .orig = orig, .dir = dir };
+        return .{
+            .origin = orig,
+            .dir = dir,
+        };
     }
 
     pub fn at(self: *Ray, t: f64) Point3 {
-        return self.orig + vec.scale(self.dir, t);
+        return self.origin + vec.scale(self.dir, t);
     }
 };

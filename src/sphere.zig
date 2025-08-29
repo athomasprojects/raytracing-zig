@@ -14,14 +14,14 @@ pub const Sphere = struct {
     radius: f64,
 
     pub fn hit(self: Sphere, r: Ray, t_min: f64, t_max: f64, rec: HitRecord) bool {
-        const oc: Vec3 = self.center - r.orig; // vector from the ray origin to the center of the sphere
+        const oc: Vec3 = self.center - r.origin; // vector from the ray origin to the center of the sphere
         const a: f64 = vec.lengthSquared(r.dir);
         const h: f64 = vec.dot(r.dir, oc);
         const c: f64 = vec.lengthSquared(oc) - self.radius * self.radius;
 
-        // discriminant < 0 - no solutions (ray does not hit)
-        // discriminant == 0 - 1 solution (ray intersects sphere at one point tangent to the sphere)
-        // discriminant > 0 - 2 solutions (ray intersects the sphere at 2 unique points)
+        // discriminant < 0 : no solutions (ray does not hit).
+        // discriminant == 0 : 1 solution (ray intersects sphere at one point tangent to the sphere).
+        // discriminant > 0 : 2 solutions (ray intersects the sphere at 2 unique points).
         const discriminant: f64 = h * h - a * c;
 
         if (discriminant < 0) {

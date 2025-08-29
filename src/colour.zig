@@ -13,4 +13,5 @@ pub fn writeColour(writer: anytype, pixel_colour: Colour) !void {
 
     // Write out pixel colour components.
     try writer.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
+    try writer.flush();
 }

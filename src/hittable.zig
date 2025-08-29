@@ -21,6 +21,11 @@ pub const Hittable = union(enum) {
     }
 
     pub fn sphere(center: Point3, radius: f64) Hittable {
-        return .{ .Sphere = Sphere{ .center = center, .radius = @max(0, radius) } };
+        return .{
+            .Sphere = Sphere{
+                .center = center,
+                .radius = @max(0, radius),
+            },
+        };
     }
 };
