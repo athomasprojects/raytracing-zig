@@ -1,5 +1,6 @@
 const std = @import("std");
 const math = std.math;
+const assert = std.debug.assert;
 const sqrt = math.sqrt;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -12,10 +13,13 @@ pub const sqrt2: f64 = @as(f64, math.sqrt2);
 pub const sqrt3: f64 = sqrt(@as(f64, 3));
 pub const infinity = std.math.inf(f64);
 pub const allowed_float_min: comptime_float = 1e-160;
+pub const float_epsilon: f64 = 1e-12;
+pub const float_tolerance_vec: Vec3 = @splat(float_epsilon);
 
-pub const unit_vec_x = Vec3{ 1, 0, 0 };
-pub const unit_vec_y = Vec3{ 0, 1, 0 };
-pub const unit_vec_z = Vec3{ 0, 0, 1 };
+pub const unit_vec_x: Vec3 = .{ 1, 0, 0 };
+pub const unit_vec_y: Vec3 = .{ 0, 1, 0 };
+pub const unit_vec_z: Vec3 = .{ 0, 0, 1 };
+pub const ones: Vec3 = .{ 1, 1, 1 };
 
 pub const empty: Vec3 = @splat(0);
 
@@ -89,13 +93,12 @@ pub fn normalize(v: Vec3) Vec3 {
 
 pub fn hasTwoOnes(v: Vec3) bool {
     const abs_v: Vec3 = @abs(v);
-    const comparison: @Vector(3, bool) = abs_v == fromScalar(1);
+    const comparison: @Vector(3, bool) = @abs(abs_v - ones) <= float_tolerance_vec;
     return @reduce(.Add, @as(@Vector(3, u8), @intFromBool(comparison))) == 2;
 }
 
 pub fn isAllOnes(v: Vec3) bool {
-    const abs_v: Vec3 = @abs(v);
-    return abs_v[0] == 1 and abs_v[0] == abs_v[1] and abs_v[1] == abs_v[2];
+    return eql(@abs(v), ones);
 }
 
 pub fn isUnitAxis(v: Vec3) bool {
@@ -104,12 +107,38 @@ pub fn isUnitAxis(v: Vec3) bool {
 }
 
 pub inline fn isUnitVec(v: Vec3) bool {
-    return lengthSquared(v) == 1;
+    return std.math.approxEqAbs(f64, lengthSquared(v), 1, float_epsilon);
 }
 
 pub inline fn eql(u: Vec3, v: Vec3) bool {
-    return @reduce(.And, u == v);
+    return @reduce(.And, @abs(u - v) <= float_tolerance_vec);
 }
+
+pub inline fn nearZero(v: Vec3) bool {
+    return @reduce(.And, @abs(v) < float_tolerance_vec);
+}
+
+// pub fn approxEqAbs(comptime T: type, u: T, v: T, tolerance: T) bool {
+//     switch (@typeInfo(T)) {
+//         .float, .comptime_float => {
+//             return math.approxEqAbs(f64, u, v, tolerance);
+//         },
+//         .vector => {
+//             assert(@reduce(.And, tolerance >= empty));
+//             // Catches exact matches, signed zero, infinities.
+//             if (@reduce(.And, u == v))
+//                 return true;
+//
+//             // // any NaN element
+//             // if (@reduce(.Or, math.isNan(u) or math.isNan(v)))
+//             //     return false;
+//
+//             // abs(u - v) <= tolerance, component-wise
+//             return @reduce(.And, @abs(u - v) <= tolerance);
+//         },
+//         else => @compileError("approxEqAbs only supports floats or vectors of floats"),
+//     }
+// }
 
 /// Returns random real in [0, 1).
 pub inline fn randomFloat() f64 {
@@ -163,6 +192,11 @@ pub fn randomVecOnHemisphere(normal: Vec3) Vec3 {
     return -on_unit_sphere;
 }
 
+/// Returns the reflected vector from an incident vector `v` on a surface with normal vector `n`.
+pub fn reflect(v: Vec3, n: Vec3) Vec3 {
+    return v - scale(n, 2 * dot(v, n));
+}
+
 pub fn print(v: Vec3) void {
     std.debug.print("{{{d}, {d}, {d}}}\n", .{ v[0], v[1], v[2] });
 }
@@ -175,13 +209,12 @@ test "init vector" {
 test "empty vector" {
     const v = empty;
     try expectEqual(v, [_]f64{0} ** 3);
-    try expectEqual(v, @splat(0));
+    try expectEqual(v, @as(Vec3, @splat(0)));
 }
 
 test "equality" {
     const v: Vec3 = .{ 6, 3, -5 };
     const u = [_]f64{ 6, 3, -5 };
-    try expect(@TypeOf(v) == @TypeOf(u));
     try expectEqual(v, u);
     try expect(eql(v, u));
 }
@@ -292,7 +325,7 @@ test "all +/- ones" {
 
 test "random float in [0,1)" {
     const val = randomFloat();
-    try expect(@TypeOf(val) == f32);
+    try expect(@TypeOf(val) == f64);
     try expect(val >= 0 and val < 1);
 }
 
@@ -300,14 +333,15 @@ test "random float in [min,max)" {
     const min: f64 = -100.5;
     const max: f64 = 426.8;
     const val = randomFloatRange(min, max);
-    try expect(@TypeOf(val) == f32);
+    try expect(@TypeOf(val) == f64);
     try expect(val >= min and val < max);
 }
 
 test "random vec with all elements [0,1)" {
     const v = randomVec();
     try expect(@TypeOf(v) == Vec3);
-    try expect(@reduce(.And, v >= @as(Vec3, @splat(0)) and v < @as(Vec3, @splat(1))), true);
+    try expect(@reduce(.And, v >= @as(Vec3, @splat(0))));
+    try expect(@reduce(.And, v < @as(Vec3, @splat(1))));
 }
 
 test "random vec with all element in [min,max)" {
@@ -315,7 +349,8 @@ test "random vec with all element in [min,max)" {
     const max: f64 = 426.8;
     const v = randomVecRange(min, max);
     try expect(@TypeOf(v) == Vec3);
-    try expect(@reduce(.And, v >= @as(Vec3, @splat(min)) and v < @as(Vec3, @splat(max))), true);
+    try expect(@reduce(.And, v >= @as(Vec3, @splat(min))));
+    try expect(@reduce(.And, v < @as(Vec3, @splat(max))));
 }
 
 test "is unit vector" {
@@ -325,7 +360,10 @@ test "is unit vector" {
 }
 
 test "random unit vector" {
-    const v = randomUnitVec();
-    try expect(@TypeOf(v) == Vec3);
-    try expect(isUnitVec(v));
+    try expect(isUnitVec(randomUnitVec()));
+}
+
+test "near zero" {
+    try expect(!nearZero(float_tolerance_vec));
+    try expect(nearZero(.{ 1e-13, -1e-13, 0 }));
 }

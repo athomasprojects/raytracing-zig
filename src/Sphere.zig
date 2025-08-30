@@ -7,15 +7,18 @@ const Hittable = hittable.Hittable;
 const HitRecord = hittable.HitRecord;
 const Ray = @import("Ray.zig");
 const Interval = @import("Interval.zig");
+const Material = @import("material.zig").Material;
 
 center: Point3,
 radius: f64,
+mat: *const Material,
 const Sphere = @This();
 
-pub fn init(center: Point3, radius: f64) Sphere {
+pub fn init(center: Point3, radius: f64, mat: *const Material) Sphere {
     return .{
         .center = center,
         .radius = @max(0, radius),
+        .mat = mat,
     };
 }
 
@@ -49,6 +52,7 @@ pub fn hit(self: Sphere, ray: *Ray, ray_interval: Interval, rec: *HitRecord) boo
     rec.p = ray.at(rec.t);
     const outward_normal: Vec3 = vec.divScalar(rec.p - self.center, self.radius);
     rec.setFaceNormal(ray, outward_normal);
+    rec.mat = self.mat;
 
     return true;
 }

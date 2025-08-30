@@ -3,6 +3,7 @@ const vec = @import("vec.zig");
 const Ray = @import("Ray.zig");
 const Sphere = @import("Sphere.zig");
 const Interval = @import("Interval.zig");
+const Material = @import("material.zig").Material;
 const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
 const ArrayList = std.ArrayList;
@@ -12,6 +13,7 @@ pub const HitRecord = struct {
     p: Point3,
     normal: Vec3,
     t: f64,
+    mat: *const Material,
     front_face: bool,
 
     /// Sets the hit record normal vector. `outward_normal` is assumed to have unit length.

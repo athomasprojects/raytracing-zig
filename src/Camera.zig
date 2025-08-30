@@ -138,11 +138,15 @@ fn rayColour(r: *Ray, depth: comptime_int, world: *HittableList) Colour {
     }
 
     var rec: HitRecord = undefined;
-    var ray: Ray = undefined;
     const interval: Interval = .init(0.001, vec.infinity);
     if (world.hit(r, interval, &rec)) {
-        ray = .init(rec.p, rec.normal + vec.randomUnitVec());
-        return vec.scale(rayColour(&ray, depth - 1, world), 0.5);
+        var scattered: Ray = undefined;
+        if (rec.mat.scatter(r, &rec, &scattered)) {
+            return switch (rec.mat.*) {
+                .lambertian, .metal => |attenuation| attenuation * rayColour(&scattered, depth - 1, world),
+            };
+        }
+        return vec.empty;
     }
 
     const unit_direction: Vec3 = vec.normalize(r.dir);
