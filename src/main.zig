@@ -17,7 +17,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image06.ppm";
+    const ppm_fname = "image07.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
