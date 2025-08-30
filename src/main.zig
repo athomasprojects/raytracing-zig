@@ -3,6 +3,7 @@ const vec = @import("vec.zig");
 const hittable = @import("hittable.zig");
 const Ray = @import("Ray.zig");
 const Sphere = @import("Sphere.zig");
+const Interval = @import("Interval.zig");
 const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
 const Colour = vec.Colour;
@@ -110,7 +111,7 @@ pub fn main() !void {
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
 fn rayColour(r: *Ray, world: *HittableList) Colour {
     var rec: HitRecord = undefined;
-    if (world.hit(r, 0, vec.infinity, &rec)) {
+    if (world.hit(r, .init(0, vec.infinity), &rec)) {
         return vec.scale(rec.normal + Colour{ 1, 1, 1 }, 0.5);
     }
 

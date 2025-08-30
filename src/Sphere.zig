@@ -6,6 +6,7 @@ const Point3 = vec.Point3;
 const Hittable = hittable.Hittable;
 const HitRecord = hittable.HitRecord;
 const Ray = @import("Ray.zig");
+const Interval = @import("Interval.zig");
 
 center: Point3,
 radius: f64,
@@ -18,7 +19,7 @@ pub fn init(center: Point3, radius: f64) Sphere {
     };
 }
 
-pub fn hit(self: Sphere, ray: *Ray, t_min: f64, t_max: f64, rec: *HitRecord) bool {
+pub fn hit(self: Sphere, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
     const oc: Vec3 = self.center - ray.origin; // vector from the ray origin to the center of the sphere.
     const a: f64 = vec.lengthSquared(ray.dir);
     const h: f64 = vec.dot(ray.dir, oc);
@@ -36,9 +37,9 @@ pub fn hit(self: Sphere, ray: *Ray, t_min: f64, t_max: f64, rec: *HitRecord) boo
     // Find the nearest root that lies in the acceptable range.
     const sqrtd = std.math.sqrt(discriminant);
     var root = (h - sqrtd) / a;
-    if (root <= t_min or t_max <= root) {
+    if (!ray_interval.surrounds(root)) {
         root = (h + sqrtd) / a;
-        if (root <= t_min or t_max <= root) {
+        if (!ray_interval.surrounds(root)) {
             return false;
         }
     }

@@ -2,6 +2,7 @@ const std = @import("std");
 const vec = @import("vec.zig");
 const Ray = @import("Ray.zig");
 const Sphere = @import("Sphere.zig");
+const Interval = @import("Interval.zig");
 const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
 const ArrayList = std.ArrayList;
@@ -23,9 +24,9 @@ pub const HitRecord = struct {
 pub const Hittable = union(enum) {
     sphere: Sphere,
 
-    pub fn hit(self: Hittable, ray: *Ray, t_min: f64, t_max: f64, rec: *HitRecord) bool {
+    pub fn hit(self: Hittable, ray: *Ray, interval: Interval, rec: *HitRecord) bool {
         return switch (self) {
-            inline else => |impl| impl.hit(ray, t_min, t_max, rec),
+            inline else => |impl| impl.hit(ray, interval, rec),
         };
     }
 };
@@ -46,13 +47,13 @@ pub const HittableList = struct {
         // self.* = undefined;
     }
 
-    pub fn hit(self: *HittableList, ray: *Ray, ray_tmin: f64, ray_tmax: f64, rec: *HitRecord) bool {
+    pub fn hit(self: *HittableList, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
         var temp_rec: HitRecord = undefined;
         var hit_anything = false;
-        var closest_so_far = ray_tmax;
+        var closest_so_far = ray_interval.max;
 
         for (self.objects.items) |object| {
-            if (object.hit(ray, ray_tmin, closest_so_far, &temp_rec)) {
+            if (object.hit(ray, .init(ray_interval.min, closest_so_far), &temp_rec)) {
                 hit_anything = true;
                 closest_so_far = temp_rec.t;
                 rec.* = temp_rec;
