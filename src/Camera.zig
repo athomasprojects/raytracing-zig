@@ -138,8 +138,9 @@ fn rayColour(r: *Ray, depth: comptime_int, world: *HittableList) Colour {
 
     var rec: HitRecord = undefined;
     var ray: Ray = undefined;
-    if (world.hit(r, .init(0.001, vec.infinity), &rec)) {
-        ray = .init(rec.p, vec.randomVecOnHemisphere(rec.normal));
+    const interval: Interval = .init(0.001, vec.infinity);
+    if (world.hit(r, interval, &rec)) {
+        ray = .init(rec.p, rec.normal + vec.randomUnitVec());
         return vec.scale(rayColour(&ray, depth - 1, world), 0.5);
     }
 
