@@ -8,21 +8,24 @@ const HitRecord = hittable.HitRecord;
 const Hittable = hittable.Hittable;
 const HittableList = hittable.HittableList;
 const Ray = @import("Ray.zig");
+const Interval = @import("Interval.zig");
 const Writer = std.Io.Writer;
 
 // Fields prefixed with `_` are for internal use only and should not be modified!
 aspect_ratio: comptime_float, // Ratio of the image width to image height.
 image_width: comptime_int, // Rendered image width in pixel count.
+samples_per_pixel: comptime_int, // Count of random samples for each pixel.
 _image_height: comptime_int, // Rendered image height.
 _center: Point3, // Camera center.
 _pixel00_loc: Point3, // Locatio of pixel (0,0).
 _pixel_delta_u: Vec3, // Offset to pixel to the right.
 _pixel_delta_v: Vec3, // Offset to pixel below.
+_pixel_samples_scale: f64, // Colour scale factor for a sum of pixel samples.
 const Camera = @This();
 
-pub const default: Camera = .init(16.0 / 9.0, 1200);
+pub const default: Camera = .init(16.0 / 9.0, 400, 100);
 
-pub fn init(aspect_ratio: comptime_float, image_width: comptime_float) Camera {
+pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int) Camera {
     if (aspect_ratio < 0) @compileError("aspect ratio must be positive");
     if (image_width < 0) @compileError("image_width must be positive");
 
@@ -56,6 +59,8 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float) Camera {
         ._pixel00_loc = pixel00_loc,
         ._pixel_delta_u = pixel_delta_u,
         ._pixel_delta_v = pixel_delta_v,
+        .samples_per_pixel = samples_per_pixel,
+        ._pixel_samples_scale = 1.0 / @as(f64, samples_per_pixel),
     };
 }
 
@@ -73,24 +78,26 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
         },
     );
 
-    var pixel_center: Vec3 = vec.empty;
-    var pixel_colour: Colour = vec.empty;
-    var ray: Ray = .init(self._center, vec.empty);
+    const intensity: Interval = .init(0, 0.999);
+    var ray: Ray = undefined;
+    var pixel_colour: Colour = undefined;
     for (0..self._image_height) |j| {
         // Progress indicator.
         try stdout.print("Scanlines remaining: {d}\r", .{self._image_height - j});
         try stdout.flush();
 
         for (0..self.image_width) |i| {
-            pixel_center = self._pixel00_loc + vec.scale(self._pixel_delta_u, @floatFromInt(i)) + vec.scale(self._pixel_delta_v, @floatFromInt(j));
-            ray.dir = pixel_center - self._center;
-            pixel_colour = rayColour(&ray, world);
+            pixel_colour = vec.empty;
+            for (0..self.samples_per_pixel) |_| {
+                ray = self.getRay(i, j);
+                pixel_colour += rayColour(&ray, world);
+            }
+            pixel_colour = vec.scale(pixel_colour, self._pixel_samples_scale);
 
             // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
-            const c: f64 = 255.999;
-            const r_byte: u8 = @intFromFloat(c * pixel_colour[0]);
-            const g_byte: u8 = @intFromFloat(c * pixel_colour[1]);
-            const b_byte: u8 = @intFromFloat(c * pixel_colour[2]);
+            const r_byte: u8 = @intFromFloat(256 * intensity.clamp(pixel_colour[0]));
+            const g_byte: u8 = @intFromFloat(256 * intensity.clamp(pixel_colour[1]));
+            const b_byte: u8 = @intFromFloat(256 * intensity.clamp(pixel_colour[2]));
 
             // Write pixel colour components.
             try file_out.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
@@ -99,6 +106,27 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
     try file_out.flush();
     try stdout.print("\rDone.                     \n", .{});
     try stdout.flush();
+}
+
+/// Construct a camera ray originating from the origin and directed at randomly sampled point around the pixel location (i, j).
+fn getRay(self: Camera, i: usize, j: usize) Ray {
+    const offset: Vec3 = sampleSquare();
+    const pixel_sample = self._pixel00_loc +
+        vec.scale(
+            self._pixel_delta_u,
+            @as(f64, @floatFromInt(i)) + vec.x(offset),
+        ) +
+        vec.scale(
+            self._pixel_delta_v,
+            @as(f64, @floatFromInt(j)) + vec.y(offset),
+        );
+
+    return .init(self._center, pixel_sample - self._center);
+}
+
+/// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
+fn sampleSquare() Vec3 {
+    return vec.init(vec.randomFloat() - 0.5, vec.randomFloat() - 0.5, 0);
 }
 
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.

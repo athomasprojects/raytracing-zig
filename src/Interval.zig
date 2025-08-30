@@ -26,3 +26,8 @@ pub fn contains(self: Interval, x: f64) bool {
 pub fn surrounds(self: Interval, x: f64) bool {
     return self.min < x and x < self.max;
 }
+
+pub fn clamp(self: Interval, x: f64) f64 {
+    return std.math.clamp(x, self.min, self.max);
+}
+

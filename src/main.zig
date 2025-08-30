@@ -17,7 +17,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image05.ppm";
+    const ppm_fname = "image05_antialiased.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
@@ -35,7 +35,7 @@ pub fn main() !void {
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
 
-    // Create or opent ppm file
+    // Create or open ppm file.
     const file = try std.fs.cwd().createFile(path, .{ .read = true });
     defer file.close();
 
