@@ -26,12 +26,10 @@ const Camera = @This();
 pub const default: Camera = .init(16.0 / 9.0, 400, 100);
 
 pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int) Camera {
-    if (aspect_ratio < 0) @compileError("aspect ratio must be positive");
-    if (image_width < 0) @compileError("image_width must be positive");
+    if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
+    if (image_width <= 0) @compileError("image_width must be positive");
 
     const image_height: comptime_int = @intFromFloat(@as(comptime_float, image_width) / aspect_ratio);
-    if (image_height < 0) @compileError("image_width must be positive");
-
     const center: Point3 = .{ 0, 0, 0 };
 
     // Determine viewport dimensions.
@@ -132,8 +130,10 @@ fn sampleSquare() Vec3 {
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
 fn rayColour(r: *Ray, world: *HittableList) Colour {
     var rec: HitRecord = undefined;
+    var ray: Ray = undefined;
     if (world.hit(r, .init(0, vec.infinity), &rec)) {
-        return vec.scale(rec.normal + Colour{ 1, 1, 1 }, 0.5);
+        ray = .init(rec.p, vec.randomVecOnHemisphere(rec.normal));
+        return vec.scale(rayColour(&ray, world), 0.5);
     }
 
     const unit_direction: Vec3 = vec.normalize(r.dir);

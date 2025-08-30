@@ -11,6 +11,7 @@ pub const Colour = Vec3;
 pub const sqrt2: f64 = @as(f64, math.sqrt2);
 pub const sqrt3: f64 = sqrt(@as(f64, 3));
 pub const infinity = std.math.inf(f64);
+pub const allowed_float_min: comptime_float = 1e-160;
 
 pub const unit_vec_x = Vec3{ 1, 0, 0 };
 pub const unit_vec_y = Vec3{ 0, 1, 0 };
@@ -102,6 +103,10 @@ pub fn isUnitAxis(v: Vec3) bool {
     return eql(abs_v, unit_vec_x) or eql(abs_v, unit_vec_y) or eql(abs_v, unit_vec_z);
 }
 
+pub inline fn isUnitVec(v: Vec3) bool {
+    return lengthSquared(v) == 1;
+}
+
 pub inline fn eql(u: Vec3, v: Vec3) bool {
     return @reduce(.And, u == v);
 }
@@ -116,6 +121,7 @@ pub fn randomFloatRange(min: f64, max: f64) f64 {
     return min + (max - min) * randomFloat();
 }
 
+/// Returns random vector whose elements are all in [0, 1).
 pub fn randomVec() Vec3 {
     return .{
         randomFloat(),
@@ -124,12 +130,37 @@ pub fn randomVec() Vec3 {
     };
 }
 
+/// Returns random vector whose elements are all in [min, max).
 pub fn randomVecRange(min: f64, max: f64) Vec3 {
     return .{
         randomFloatRange(min, max),
         randomFloatRange(min, max),
         randomFloatRange(min, max),
     };
+}
+
+pub fn unitVec(v: Vec3) Vec3 {
+    return divScalar(v, length(v));
+}
+
+pub fn randomUnitVec() Vec3 {
+    while (true) {
+        const p = randomVecRange(-1, 1);
+        const len_square: f64 = lengthSquared(p);
+        if (allowed_float_min < len_square and len_square <= 1) {
+            return divScalar(p, sqrt(len_square));
+        }
+    }
+}
+
+/// Returns random unit vector on the same hemisphere as the surface normal.
+pub fn randomVecOnHemisphere(normal: Vec3) Vec3 {
+    const on_unit_sphere: Vec3 = randomUnitVec();
+    if (dot(on_unit_sphere, normal) > 0) {
+        // The random vector is in the same hemisphere as the surface normal.
+        return on_unit_sphere;
+    }
+    return -on_unit_sphere;
 }
 
 pub fn print(v: Vec3) void {
@@ -285,4 +316,16 @@ test "random vec with all element in [min,max)" {
     const v = randomVecRange(min, max);
     try expect(@TypeOf(v) == Vec3);
     try expect(@reduce(.And, v >= @as(Vec3, @splat(min)) and v < @as(Vec3, @splat(max))), true);
+}
+
+test "is unit vector" {
+    const v: Vec3 = .{ -2, 6, 4 };
+    const unit = divScalar(v, length(v));
+    try expect(isUnitVec(unit));
+}
+
+test "random unit vector" {
+    const v = randomUnitVec();
+    try expect(@TypeOf(v) == Vec3);
+    try expect(isUnitVec(v));
 }
