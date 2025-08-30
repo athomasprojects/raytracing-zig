@@ -12,3 +12,9 @@ pub fn writeColour(writer: *std.Io.Writer, pixel_colour: Colour) !void {
     // Write out pixel colour components.
     try writer.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
 }
+
+/// Applies a linear to gamma transform for gamma 2.
+pub inline fn gammaFromLinear(linear_component: f64) f64 {
+    if (linear_component > 0) return std.math.sqrt(linear_component);
+    return 0;
+}

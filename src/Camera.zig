@@ -1,4 +1,5 @@
 const std = @import("std");
+const colour = @import("colour.zig");
 const vec = @import("vec.zig");
 const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
@@ -78,9 +79,9 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
         },
     );
 
-    const intensity: Interval = .init(0, 0.999);
     var ray: Ray = undefined;
     var pixel_colour: Colour = undefined;
+    const intensity: Interval = .init(0, 0.999);
     for (0..self._image_height) |j| {
         // Progress indicator.
         try stdout.print("Scanlines remaining: {d}\r", .{self._image_height - j});
@@ -95,9 +96,9 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
             pixel_colour = vec.scale(pixel_colour, self._pixel_samples_scale);
 
             // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
-            const r_byte: u8 = @intFromFloat(256 * intensity.clamp(pixel_colour[0]));
-            const g_byte: u8 = @intFromFloat(256 * intensity.clamp(pixel_colour[1]));
-            const b_byte: u8 = @intFromFloat(256 * intensity.clamp(pixel_colour[2]));
+            const r_byte: u8 = @intFromFloat(256 * intensity.clamp(colour.gammaFromLinear(pixel_colour[0])));
+            const g_byte: u8 = @intFromFloat(256 * intensity.clamp(colour.gammaFromLinear(pixel_colour[1])));
+            const b_byte: u8 = @intFromFloat(256 * intensity.clamp(colour.gammaFromLinear(pixel_colour[2])));
 
             // Write pixel colour components.
             try file_out.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
