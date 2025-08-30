@@ -10,6 +10,7 @@ pub const Colour = Vec3;
 
 pub const sqrt2: f64 = @as(f64, math.sqrt2);
 pub const sqrt3: f64 = sqrt(@as(f64, 3));
+pub const infinity = std.math.inf(f64);
 
 pub const unit_vec_x = Vec3{ 1, 0, 0 };
 pub const unit_vec_y = Vec3{ 0, 1, 0 };
@@ -109,6 +110,16 @@ pub fn isUnitAxis(v: Vec3) bool {
 
 pub inline fn eql(u: Vec3, v: Vec3) bool {
     return @reduce(.And, u == v);
+}
+
+/// Returns random real in [0, 1).
+pub inline fn randomFloat() f64 {
+    return std.crypto.random.float(f64);
+}
+
+/// Returns a random real in [min,max).
+pub fn randomFloatRange(min: f64, max: f64) f64 {
+    return min + (max - min) * randomFloat();
 }
 
 pub fn print(v: Vec3) void {

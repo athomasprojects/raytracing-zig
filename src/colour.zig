@@ -1,5 +1,4 @@
 const std = @import("std");
-
 const Colour = @import("vec.zig").Colour;
 
 pub fn writeColour(writer: anytype, pixel_colour: Colour) !void {
