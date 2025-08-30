@@ -51,14 +51,9 @@ pub inline fn divScalar(v: Vec3, t: f64) Vec3 {
 }
 
 pub fn length(v: Vec3) f64 {
-    if (isUnitAxis(v)) {
-        return 1;
-    } else if (hasTwoOnes(v)) {
-        return sqrt2;
-    } else if (isAllOnes(v)) {
-        return sqrt3;
-    }
-
+    if (isUnitAxis(v)) return 1;
+    if (hasTwoOnes(v)) return sqrt2;
+    if (isAllOnes(v)) return sqrt3;
     return sqrt(lengthSquared(v));
 }
 
@@ -121,7 +116,7 @@ pub fn randomFloatRange(min: f64, max: f64) f64 {
     return min + (max - min) * randomFloat();
 }
 
-pub inline fn randomVec() Vec3 {
+pub fn randomVec() Vec3 {
     return .{
         randomFloat(),
         randomFloat(),
@@ -129,7 +124,7 @@ pub inline fn randomVec() Vec3 {
     };
 }
 
-pub inline fn randomVecRange(min: f64, max: f64) Vec3 {
+pub fn randomVecRange(min: f64, max: f64) Vec3 {
     return .{
         randomFloatRange(min, max),
         randomFloatRange(min, max),
@@ -143,25 +138,33 @@ pub fn print(v: Vec3) void {
 
 test "init vector" {
     const v = init(1, 2, 3);
-    try expect(std.meta.eql(v, @Vector(3, f64){ 1, 2, 3 }));
+    try expectEqual(v, @Vector(3, f64){ 1, 2, 3 });
 }
 
 test "empty vector" {
     const v = empty;
-    try expect(std.meta.eql(v, [_]f64{0} ** 3));
-    try expect(std.meta.eql(v, @splat(0)));
+    try expectEqual(v, [_]f64{0} ** 3);
+    try expectEqual(v, @splat(0));
+}
+
+test "equality" {
+    const v: Vec3 = .{ 6, 3, -5 };
+    const u = [_]f64{ 6, 3, -5 };
+    try expect(@TypeOf(v) == @TypeOf(u));
+    try expectEqual(v, u);
+    try expect(eql(v, u));
 }
 
 test "create a vector from a scalar" {
     const c: f64 = 5.018972;
     const v = fromScalar(c);
     const expected: @Vector(3, f64) = [_]f64{c} ** 3;
-    try expect(std.meta.eql(v, expected));
+    try expectEqual(v, expected);
 }
 
 test "create a vector from an array" {
     const arr: [3]f64 = .{ 2, 5, -6.9 };
-    try expect(std.meta.eql(loadArr(arr), arr));
+    try expectEqual(loadArr(arr), arr);
 }
 
 test "access vector components" {
@@ -175,15 +178,14 @@ test "access vector components" {
 }
 
 test "scale" {
-    var v = init(1, 2, -3.5);
-    v = scale(v, 2);
-    try expect(std.meta.eql(v, init(2, 4, -7)));
+    const v = scale(Vec3{ 1, 2, -3.5 }, 2);
+    try expect(@TypeOf(v) == Vec3);
+    try expectEqual(v, Vec3{ 2, 4, -7 });
 }
 
 test "scalar division" {
-    var v = init(1, 2, 3);
-    v = divScalar(v, 2);
-    try expect(std.meta.eql(v, [_]f64{ 0.5, 1, 1.5 }));
+    const v = divScalar(Vec3{ 1, 2, 3 }, 2);
+    try expectEqual(v, [_]f64{ 0.5, 1, 1.5 });
 }
 
 test "dot product" {
