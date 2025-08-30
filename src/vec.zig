@@ -27,7 +27,6 @@ pub inline fn fromScalar(value: f64) Vec3 {
 }
 
 pub inline fn loadArr(arr: [3]f64) Vec3 {
-    // return .{ arr[0], arr[1], arr[2] };
     return arr;
 }
 
@@ -120,6 +119,22 @@ pub inline fn randomFloat() f64 {
 /// Returns a random real in [min,max).
 pub fn randomFloatRange(min: f64, max: f64) f64 {
     return min + (max - min) * randomFloat();
+}
+
+pub inline fn randomVec() Vec3 {
+    return .{
+        randomFloat(),
+        randomFloat(),
+        randomFloat(),
+    };
+}
+
+pub inline fn randomVecRange(min: f64, max: f64) Vec3 {
+    return .{
+        randomFloatRange(min, max),
+        randomFloatRange(min, max),
+        randomFloatRange(min, max),
+    };
 }
 
 pub fn print(v: Vec3) void {
@@ -240,4 +255,32 @@ test "all +/- ones" {
     try expect(isAllOnes(u));
     try expect(isAllOnes(v));
     try expect(isAllOnes(w));
+}
+
+test "random float in [0,1)" {
+    const val = randomFloat();
+    try expect(@TypeOf(val) == f32);
+    try expect(val >= 0 and val < 1);
+}
+
+test "random float in [min,max)" {
+    const min: f64 = -100.5;
+    const max: f64 = 426.8;
+    const val = randomFloatRange(min, max);
+    try expect(@TypeOf(val) == f32);
+    try expect(val >= min and val < max);
+}
+
+test "random vec with all elements [0,1)" {
+    const v = randomVec();
+    try expect(@TypeOf(v) == Vec3);
+    try expect(@reduce(.And, v >= @as(Vec3, @splat(0)) and v < @as(Vec3, @splat(1))), true);
+}
+
+test "random vec with all element in [min,max)" {
+    const min: f64 = -100.5;
+    const max: f64 = 426.8;
+    const v = randomVecRange(min, max);
+    try expect(@TypeOf(v) == Vec3);
+    try expect(@reduce(.And, v >= @as(Vec3, @splat(min)) and v < @as(Vec3, @splat(max))), true);
 }
