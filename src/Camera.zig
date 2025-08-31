@@ -17,6 +17,7 @@ aspect_ratio: comptime_float, // Ratio of the image width to image height.
 image_width: comptime_int, // Rendered image width in pixel count.
 samples_per_pixel: comptime_int, // Count of random samples for each pixel.
 max_ray_bounces: comptime_int, // Maximum number of ray bounces into scene.
+vertical_fov_deg: comptime_float, // Vertical field of view (viewing angle), specified in degrees.
 _image_height: comptime_int, // Rendered image height.
 _center: Point3, // Camera center.
 _pixel00_loc: Point3, // Locatio of pixel (0,0).
@@ -25,18 +26,20 @@ _pixel_delta_v: Vec3, // Offset to pixel below.
 _pixel_samples_scale: f64, // Colour scale factor for a sum of pixel samples.
 const Camera = @This();
 
-pub const default: Camera = .init(16.0 / 9.0, 400, 100, 50);
+pub const default: Camera = .init(16.0 / 9.0, 400, 100, 50, 90);
 
-pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int, max_ray_bounces: comptime_int) Camera {
+pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int, max_ray_bounces: comptime_int, vertical_fov_deg: comptime_float) Camera {
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
     const image_height: comptime_int = @intFromFloat(@as(comptime_float, image_width) / aspect_ratio);
-    const center: Point3 = .{ 0, 0, 0 };
+    const camera_center: Point3 = .{ 0, 0, 0 };
 
     // Determine viewport dimensions.
-    const focal_length = 1.0; // Distance from the camera center to the viewport.
-    const viewport_height = 2.0;
+    const focal_length = 1.0; // Distance from the camera center to the viewport center.
+    const theta_rad = std.math.degreesToRadians(vertical_fov_deg);
+    const h = std.math.tan(theta_rad * 0.5);
+    const viewport_height = 2 * h * focal_length;
     const viewport_width: comptime_float = viewport_height * (@as(comptime_float, image_width) / @as(comptime_float, image_height));
 
     // Calculate the vectors across the horizontal and down the vertical viewport edges.
@@ -48,7 +51,8 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     const pixel_delta_v: Vec3 = vec.divScalar(viewport_v, image_height);
 
     // Calculate location of upper left pixel.
-    const viewport_upper_left: Vec3 = center - vec.init(0, 0, focal_length) - vec.divScalar(viewport_u, 2) - vec.divScalar(viewport_v, 2);
+    // const viewport_upper_left: Vec3 = camera_center - Vec3{ 0, 0, focal_length } - vec.scale(viewport_u, 0.5) - vec.scale(viewport_v, 0.5);
+    const viewport_upper_left: Vec3 = camera_center - Vec3{ 0, 0, focal_length } - vec.scale(viewport_u + viewport_v, 0.5);
     const pixel00_loc: Vec3 = viewport_upper_left + vec.scale(pixel_delta_u + pixel_delta_v, 0.5);
 
     return .{
@@ -56,8 +60,9 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
         .image_width = image_width,
         .samples_per_pixel = samples_per_pixel,
         .max_ray_bounces = max_ray_bounces,
+        .vertical_fov_deg = vertical_fov_deg,
         ._image_height = image_height,
-        ._center = center,
+        ._center = camera_center,
         ._pixel00_loc = pixel00_loc,
         ._pixel_delta_u = pixel_delta_u,
         ._pixel_delta_v = pixel_delta_v,
