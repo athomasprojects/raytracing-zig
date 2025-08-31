@@ -20,16 +20,20 @@ max_ray_bounces: comptime_int, // Maximum number of ray bounces into scene.
 vertical_fov_deg: comptime_float, // Vertical field of view (viewing angle), specified in degrees.
 look_from: Point3, // Point camera is looking from.
 look_at: Point3, // Point camera is looking from.
+v_up: Vec3, // Camera-relative "up" direction.
+defocus_angle_deg: comptime_float, // Variation angle (in degrees) of rays through each pixel.
+focus_dist: comptime_float, // Distance from camera `look_from` point to plane of perfect focus.
 _image_height: comptime_int, // Rendered image height.
 _center: Point3, // Camera center.
-_pixel00_loc: Point3, // Locatio of pixel (0,0).
+_pixel00_loc: Point3, // Location of pixel (0,0).
 _pixel_delta_u: Vec3, // Offset to pixel to the right.
 _pixel_delta_v: Vec3, // Offset to pixel below.
 _pixel_samples_scale: f64, // Colour scale factor for a sum of pixel samples.
 _u: Vec3, // Camera frame basis vector.
 _v: Vec3, // Camera frame basis vector.
 _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
-v_up: Vec3, // Camera-relative "up" direction.
+_defocus_disk_u: Vec3, // Defocus disk horizontal radius.
+_defocus_disk_v: Vec3, // Defocus disk vertical radius.
 
 const Camera = @This();
 
@@ -42,9 +46,11 @@ pub const default: Camera = .init(
     Point3{ -2, 2, 1 },
     Point3{ 0, 0, -1 },
     Vec3{ 0, 1, 0 },
+    10,
+    3.4,
 );
 
-pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int, max_ray_bounces: comptime_int, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3) Camera {
+pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int, max_ray_bounces: comptime_int, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Camera {
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
@@ -52,15 +58,12 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     const camera_center = look_from;
 
     // Determine viewport dimensions.
-    const viewing_direction = look_from - look_at;
-    const focal_length = vec.magnitude(viewing_direction); // Distance from the camera center to the viewport center.
-    const theta_rad = std.math.degreesToRadians(vertical_fov_deg);
-    const h = @tan(theta_rad * 0.5);
-    const viewport_height = 2 * h * focal_length;
+    const h = @tan(std.math.degreesToRadians(vertical_fov_deg) * 0.5);
+    const viewport_height = 2 * h * focus_dist;
     const viewport_width: comptime_float = viewport_height * (@as(comptime_float, image_width) / @as(comptime_float, image_height));
 
     // Calculate the {u,v,w} orthonormal basis vectors for the camera coordinate frame.
-    const w = vec.unit(viewing_direction);
+    const w = vec.unit(look_from - look_at);
     const u = vec.unit(vec.cross(v_up, w));
     const v = vec.cross(w, u);
 
@@ -73,9 +76,14 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     const pixel_delta_v: Vec3 = vec.divScalar(viewport_v, image_height);
 
     // Calculate location of upper left pixel.
-    // const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focal_length) - vec.scale(viewport_u, 0.5) - vec.scale(viewport_v, 0.5);
-    const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focal_length) - vec.scale(viewport_u + viewport_v, 0.5);
+    // const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focus_dist) - vec.scale(viewport_u, 0.5) - vec.scale(viewport_v, 0.5);
+    const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focus_dist) - vec.scale(viewport_u + viewport_v, 0.5);
     const pixel00_loc: Vec3 = viewport_upper_left + vec.scale(pixel_delta_u + pixel_delta_v, 0.5);
+
+    // Calculate the camera defocus disk basis vectors.
+    const defocus_radius = focus_dist * @tan(std.math.degreesToRadians(0.5 * defocus_angle_deg));
+    const defocus_disk_u: Vec3 = vec.scale(u, defocus_radius);
+    const defocus_disk_v: Vec3 = vec.scale(v, defocus_radius);
 
     return .{
         .aspect_ratio = aspect_ratio,
@@ -85,6 +93,8 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
         .vertical_fov_deg = vertical_fov_deg,
         .look_from = look_from,
         .look_at = look_at,
+        .defocus_angle_deg = defocus_angle_deg,
+        .focus_dist = focus_dist,
         ._image_height = image_height,
         ._center = camera_center,
         ._pixel00_loc = pixel00_loc,
@@ -95,6 +105,8 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
         ._u = u,
         ._v = v,
         .v_up = v_up,
+        ._defocus_disk_u = defocus_disk_u,
+        ._defocus_disk_v = defocus_disk_v,
     };
 }
 
@@ -142,7 +154,7 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
     try stdout.flush();
 }
 
-/// Construct a camera ray originating from the origin and directed at randomly sampled point around the pixel location (i, j).
+/// Construct a camera ray originating from the defocus disk and directed at a randomly sampled point around the pixel location (i, j).
 fn getRay(self: Camera, i: usize, j: usize) Ray {
     const offset: Vec3 = sampleSquare();
     const pixel_sample = self._pixel00_loc +
@@ -155,7 +167,8 @@ fn getRay(self: Camera, i: usize, j: usize) Ray {
             @as(f64, @floatFromInt(j)) + vec.y(offset),
         );
 
-    return .init(self._center, pixel_sample - self._center);
+    const ray_origin = if (self.defocus_angle_deg <= 0) self._center else self.defocusDiskSample();
+    return .init(ray_origin, pixel_sample - ray_origin);
 }
 
 /// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
@@ -165,6 +178,14 @@ fn sampleSquare() Vec3 {
         vec.randomFloat() - 0.5,
         0,
     };
+}
+
+/// Returns a random point in the camera defocus disk.
+fn defocusDiskSample(self: Camera) Point3 {
+    const v = vec.randomVecInUnitDisk();
+    return self._center +
+        vec.scale(self._defocus_disk_u, vec.x(v)) +
+        vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.

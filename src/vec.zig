@@ -163,6 +163,20 @@ pub fn randomUnitVec() Vec3 {
     }
 }
 
+/// Returns a random vector within the unit disk defined by x^2 + y^2 = 1.
+pub fn randomVecInUnitDisk() Vec3 {
+    while (true) {
+        const v: Vec3 = .{
+            randomFloatRange(-1, 1),
+            randomFloatRange(-1, 1),
+            0,
+        };
+
+        if (magnitude2(v) < 1)
+            return v;
+    }
+}
+
 /// Returns random unit vector on the same hemisphere as the surface normal.
 pub fn randomVecOnHemisphere(normal: Vec3) Vec3 {
     const on_unit_sphere: Vec3 = randomUnitVec();
