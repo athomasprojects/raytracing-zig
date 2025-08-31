@@ -49,10 +49,23 @@ pub const Material = union(enum) {
 
         // zig fmt: on
         pub fn scatter(self: @This(), ray_in: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
-            const ri = if (rec.front_face) (1 / self.refraction_index) else self.refraction_index;
+            const ri = if (rec.front_face)
+                1 / self.refraction_index
+            else
+                self.refraction_index;
+
             const unit_direction = vec.unit(ray_in.dir);
-            const refracted = vec.refract(unit_direction, rec.normal, ri);
-            scattered_ray.* = .init(rec.p, refracted);
+            const cos_theta = @min(vec.dot(-unit_direction, rec.normal), 1);
+            const sin_theta = @sqrt(@abs(1 - cos_theta * cos_theta));
+
+            const cannot_refract = ri * sin_theta > 1;
+
+            const direction = if (cannot_refract)
+                vec.reflect(unit_direction, rec.normal)
+            else
+                vec.refract(unit_direction, rec.normal, ri);
+
+            scattered_ray.* = .init(rec.p, direction);
             return true;
         }
     },

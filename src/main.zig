@@ -18,7 +18,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image13.ppm";
+    const ppm_fname = "image14.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
@@ -58,7 +58,7 @@ fn initWorld() [4]Sphere {
         .metal = .{ .albedo = .{ 0.8, 0.6, 0.2 }, .fuzz = 1 },
     };
     const left_glass: Material = .{
-        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
+        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.0 / 1.33 },
     };
 
     const world = [4]Sphere{
