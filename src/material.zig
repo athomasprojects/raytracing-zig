@@ -12,7 +12,7 @@ pub const Material = union(enum) {
     lambertian: struct {
         albedo: Colour,
 
-        pub fn scatter(_: @This(), _: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
+        fn scatter(_: @This(), _: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
             var scatter_dir: Vec3 = rec.normal + vec.randomUnitVec();
             // Catch degenerate scatter direction.
             if (vec.nearZero(scatter_dir))
@@ -33,7 +33,7 @@ pub const Material = union(enum) {
             };
         }
 
-        pub fn scatter(self: @This(), ray_in: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
+        fn scatter(self: @This(), ray_in: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
             var reflected: Vec3 = vec.reflect(ray_in.dir, rec.normal);
             reflected = vec.unit(reflected) + vec.scale(vec.randomUnitVec(), self.fuzz);
             scattered_ray.* = .init(rec.p, reflected);
@@ -48,7 +48,7 @@ pub const Material = union(enum) {
         albedo: Colour,
 
         // zig fmt: on
-        pub fn scatter(self: @This(), ray_in: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
+        fn scatter(self: @This(), ray_in: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {
             const ri = if (rec.front_face)
                 1 / self.refraction_index
             else
@@ -59,14 +59,21 @@ pub const Material = union(enum) {
             const sin_theta = @sqrt(@abs(1 - cos_theta * cos_theta));
 
             const cannot_refract = ri * sin_theta > 1;
+            const reflectance = reflectanceSchlick(cos_theta, ri);
 
-            const direction = if (cannot_refract)
+            const direction = if (cannot_refract or reflectance > vec.randomFloat())
                 vec.reflect(unit_direction, rec.normal)
             else
                 vec.refract(unit_direction, rec.normal, ri);
 
             scattered_ray.* = .init(rec.p, direction);
             return true;
+        }
+
+        fn reflectanceSchlick(cosine: f64, refraction_index: f64) f64 {
+            var r0 = (1 - refraction_index) / (1 + refraction_index);
+            r0 = r0 * r0;
+            return r0 + (1 - r0) * std.math.pow(f64, (1 - cosine), 5);
         }
     },
 

@@ -27,12 +27,6 @@ pub const HitRecord = struct {
             .mat = mat,
         };
     }
-
-    /// Sets the normal vector. `outward_normal` is assumed to have unit length.
-    pub fn setFaceNormal(self: *HitRecord, ray: *Ray, outward_normal: Vec3) void {
-        self.front_face = vec.dot(ray.dir, outward_normal) < 0;
-        self.normal = if (self.front_face) outward_normal else -outward_normal;
-    }
 };
 
 pub const HittableList = struct {
@@ -83,7 +77,7 @@ pub const Sphere = struct {
         };
     }
 
-    pub fn hit(self: Sphere, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
+    fn hit(self: Sphere, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
         const oc: Vec3 = self.center - ray.origin; // vector from the ray origin to the center of the sphere.
         const a: f64 = vec.magnitude2(ray.dir);
         const h: f64 = vec.dot(ray.dir, oc);
@@ -94,9 +88,8 @@ pub const Sphere = struct {
         // discriminant > 0 : 2 solutions (ray intersects the sphere at 2 unique points).
         const discriminant: f64 = h * h - a * c;
 
-        if (discriminant < 0) {
+        if (discriminant < 0)
             return false;
-        }
 
         // Find the nearest root that lies in the acceptable range.
         const sqrtd = std.math.sqrt(discriminant);

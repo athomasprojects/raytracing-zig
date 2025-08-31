@@ -18,7 +18,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image14.ppm";
+    const ppm_fname = "image15.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
@@ -43,7 +43,7 @@ pub fn main() !void {
     try cam.render(stdout, file_out, &world);
 }
 
-fn initWorld() [4]Sphere {
+fn initWorld() [5]Sphere {
     const ground: Material = .{
         .lambertian = .{ .albedo = .{ 0.8, 0.8, 0 } },
     };
@@ -58,14 +58,17 @@ fn initWorld() [4]Sphere {
         .metal = .{ .albedo = .{ 0.8, 0.6, 0.2 }, .fuzz = 1 },
     };
     const left_glass: Material = .{
-        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.0 / 1.33 },
+        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
+    };
+    const bubble: Material = .{
+        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.0 / 1.5 },
     };
 
-    const world = [4]Sphere{
+    return .{
         .init(.{ 0, -100.5, -1 }, 100, ground),
         .init(.{ 0, 0, -1.2 }, 0.5, center),
         .init(.{ -1, 0, -1 }, 0.5, left_glass),
+        .init(.{ -1, 0, -1 }, 0.4, bubble),
         .init(.{ 1, 0, -1 }, 0.5, right),
     };
-    return world;
 }
