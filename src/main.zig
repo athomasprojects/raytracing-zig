@@ -18,15 +18,45 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image11.ppm";
+    const ppm_fname = "image12.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
 
-    const material_ground: Material = .{ .lambertian = .{ 0.8, 0.8, 0 } };
-    const material_center: Material = .{ .lambertian = .{ 0.1, 0.2, 0.5 } };
-    const material_left: Material = .{ .metal = .{ 0.8, 0.8, 0.8 } };
-    const material_right: Material = .{ .metal = .{ 0.8, 0.6, 0.2 } };
+    const material_ground: Material = .{
+        .lambertian = .{
+            0.8,
+            0.8,
+            0,
+        },
+    };
+    const material_center: Material = .{
+        .lambertian = .{
+            0.1,
+            0.2,
+            0.5,
+        },
+    };
+    const material_left: Material = .{
+        .metal = .init(
+            .{
+                0.8,
+                0.8,
+                0.8,
+            },
+            0.3,
+        ),
+    };
+    const material_right: Material = .{
+        .metal = .init(
+            .{
+                0.8,
+                0.6,
+                0.2,
+            },
+            1,
+        ),
+    };
 
     const world_capacity: usize = 128;
     var world: HittableList = try .init(allocator, world_capacity);

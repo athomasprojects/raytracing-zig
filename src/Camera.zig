@@ -142,9 +142,11 @@ fn rayColour(r: *Ray, depth: comptime_int, world: *HittableList) Colour {
     if (world.hit(r, interval, &rec)) {
         var scattered: Ray = undefined;
         if (rec.mat.scatter(r, &rec, &scattered)) {
-            return switch (rec.mat.*) {
-                .lambertian, .metal => |attenuation| attenuation * rayColour(&scattered, depth - 1, world),
+            const attenuation: Colour = switch (rec.mat.*) {
+                .lambertian => |albedo| albedo,
+                .metal => |metal| metal.albedo,
             };
+            return attenuation * rayColour(&scattered, depth - 1, world);
         }
         return vec.empty;
     }
