@@ -1,7 +1,6 @@
 const std = @import("std");
 const vec = @import("vec.zig");
 const Ray = @import("Ray.zig");
-const Sphere = @import("Sphere.zig");
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Vec3 = vec.Vec3;
@@ -10,43 +9,45 @@ const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 pub const HitRecord = struct {
+    t: f64,
     p: Point3,
     normal: Vec3,
-    t: f64,
-    mat: *const Material,
     front_face: bool,
+    mat: Material,
 
-    /// Sets the hit record normal vector. `outward_normal` is assumed to have unit length.
+    pub fn update(ray: *Ray, t: f64, center: Vec3, radius: f64, mat: Material) HitRecord {
+        const p = ray.at(t);
+        const outward_normal = vec.divScalar(p - center, radius); // Assumed to have unit length.
+        const front_face = vec.dot(ray.dir, outward_normal) < 0;
+        return .{
+            .t = t,
+            .p = p,
+            .normal = if (front_face) outward_normal else -outward_normal,
+            .front_face = front_face,
+            .mat = mat,
+        };
+    }
+
+    /// Sets the normal vector. `outward_normal` is assumed to have unit length.
     pub fn setFaceNormal(self: *HitRecord, ray: *Ray, outward_normal: Vec3) void {
         self.front_face = vec.dot(ray.dir, outward_normal) < 0;
         self.normal = if (self.front_face) outward_normal else -outward_normal;
     }
 };
 
-pub const Hittable = union(enum) {
-    sphere: Sphere,
-
-    pub fn hit(self: Hittable, ray: *Ray, interval: Interval, rec: *HitRecord) bool {
-        return switch (self) {
-            inline else => |impl| impl.hit(ray, interval, rec),
-        };
-    }
-};
-
 pub const HittableList = struct {
     allocator: Allocator,
-    objects: ArrayList(Hittable),
+    objects: ArrayList(Sphere),
 
     pub fn init(allocator: Allocator, capacity: usize) !HittableList {
         return .{
             .allocator = allocator,
-            .objects = try ArrayList(Hittable).initCapacity(allocator, capacity),
+            .objects = try ArrayList(Sphere).initCapacity(allocator, capacity),
         };
     }
 
     pub fn deinit(self: *HittableList) void {
         self.objects.deinit();
-        // self.* = undefined;
     }
 
     pub fn hit(self: *HittableList, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
@@ -64,7 +65,57 @@ pub const HittableList = struct {
         return hit_anything;
     }
 
-    pub fn add(self: *HittableList, object: Hittable) !void {
+    pub fn add(self: *HittableList, object: Sphere) !void {
         try self.objects.append(self.allocator, object);
+    }
+};
+
+pub const Sphere = struct {
+    center: Point3,
+    radius: f64,
+    mat: Material,
+
+    pub fn init(center: Point3, radius: f64, mat: Material) Sphere {
+        return .{
+            .center = center,
+            .radius = @max(0, radius),
+            .mat = mat,
+        };
+    }
+
+    pub fn hit(self: Sphere, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
+        const oc: Vec3 = self.center - ray.origin; // vector from the ray origin to the center of the sphere.
+        const a: f64 = vec.magnitude2(ray.dir);
+        const h: f64 = vec.dot(ray.dir, oc);
+        const c: f64 = vec.magnitude2(oc) - self.radius * self.radius;
+
+        // discriminant < 0 : no solutions (ray does not hit).
+        // discriminant == 0 : 1 solution (ray intersects sphere at one point tangent to the sphere).
+        // discriminant > 0 : 2 solutions (ray intersects the sphere at 2 unique points).
+        const discriminant: f64 = h * h - a * c;
+
+        if (discriminant < 0) {
+            return false;
+        }
+
+        // Find the nearest root that lies in the acceptable range.
+        const sqrtd = std.math.sqrt(discriminant);
+        var root = (h - sqrtd) / a;
+        if (!ray_interval.surrounds(root)) {
+            root = (h + sqrtd) / a;
+            if (!ray_interval.surrounds(root)) {
+                return false;
+            }
+        }
+
+        // Update hit record.
+        rec.* = .update(
+            ray,
+            root,
+            self.center,
+            self.radius,
+            self.mat,
+        );
+        return true;
     }
 };

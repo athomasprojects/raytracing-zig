@@ -1,16 +1,16 @@
 const std = @import("std");
 const Camera = @import("Camera.zig");
 const hittable = @import("hittable.zig");
-const HitRecord = hittable.HitRecord;
-const Hittable = hittable.Hittable;
-const HittableList = hittable.HittableList;
 const vec = @import("vec.zig");
 const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
 const Colour = vec.Colour;
+const HittableList = hittable.HittableList;
+const Sphere = hittable.Sphere;
 const Ray = @import("Ray.zig");
-const Sphere = @import("Sphere.zig");
 const Material = @import("material.zig").Material;
+
+const world_capacity = 100;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -18,60 +18,12 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image12.ppm";
+    const ppm_fname = "image13.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
-
-    const material_ground: Material = .{
-        .lambertian = .{
-            0.8,
-            0.8,
-            0,
-        },
-    };
-    const material_center: Material = .{
-        .lambertian = .{
-            0.1,
-            0.2,
-            0.5,
-        },
-    };
-    const material_left: Material = .{
-        .metal = .init(
-            .{
-                0.8,
-                0.8,
-                0.8,
-            },
-            0.3,
-        ),
-    };
-    const material_right: Material = .{
-        .metal = .init(
-            .{
-                0.8,
-                0.6,
-                0.2,
-            },
-            1,
-        ),
-    };
-
-    const world_capacity: usize = 128;
     var world: HittableList = try .init(allocator, world_capacity);
-    try world.add(
-        .{ .sphere = Sphere.init(.{ 0, -100.5, -1 }, 100, &material_ground) },
-    );
-    try world.add(
-        .{ .sphere = Sphere.init(.{ 0, 0, -1.2 }, 0.5, &material_center) },
-    );
-    try world.add(
-        .{ .sphere = Sphere.init(.{ -1, 0, -1 }, 0.5, &material_left) },
-    );
-    try world.add(
-        .{ .sphere = Sphere.init(.{ 1, 0, -1 }, 0.5, &material_right) },
-    );
+    try world.objects.appendSlice(allocator, &initWorld());
 
     // Create writer to stdout.
     var stdout_buffer: [4096]u8 = undefined;
@@ -89,4 +41,31 @@ pub fn main() !void {
 
     const cam: Camera = .default;
     try cam.render(stdout, file_out, &world);
+}
+
+fn initWorld() [4]Sphere {
+    const ground: Material = .{
+        .lambertian = .{ .albedo = .{ 0.8, 0.8, 0 } },
+    };
+    const center: Material = .{
+        .lambertian = .{ .albedo = .{ 0.1, 0.2, 0.5 } },
+    };
+    const left: Material = .{
+        .metal = .{ .albedo = .{ 0.8, 0.8, 0.8 }, .fuzz = 0.3 },
+    };
+    _ = left;
+    const right: Material = .{
+        .metal = .{ .albedo = .{ 0.8, 0.6, 0.2 }, .fuzz = 1 },
+    };
+    const left_glass: Material = .{
+        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
+    };
+
+    const world = [4]Sphere{
+        .init(.{ 0, -100.5, -1 }, 100, ground),
+        .init(.{ 0, 0, -1.2 }, 0.5, center),
+        .init(.{ -1, 0, -1 }, 0.5, left_glass),
+        .init(.{ 1, 0, -1 }, 0.5, right),
+    };
+    return world;
 }

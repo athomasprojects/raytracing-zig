@@ -6,8 +6,8 @@ const Point3 = vec.Point3;
 const Colour = vec.Colour;
 const hittable = @import("hittable.zig");
 const HitRecord = hittable.HitRecord;
-const Hittable = hittable.Hittable;
 const HittableList = hittable.HittableList;
+const Material = @import("material.zig").Material;
 const Ray = @import("Ray.zig");
 const Interval = @import("Interval.zig");
 const Writer = std.Io.Writer;
@@ -40,8 +40,8 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     const viewport_width: comptime_float = viewport_height * (@as(comptime_float, image_width) / @as(comptime_float, image_height));
 
     // Calculate the vectors across the horizontal and down the vertical viewport edges.
-    const viewport_u: Vec3 = vec.init(viewport_width, 0, 0);
-    const viewport_v: Vec3 = vec.init(0, -viewport_height, 0);
+    const viewport_u: Vec3 = .{ viewport_width, 0, 0 };
+    const viewport_v: Vec3 = .{ 0, -viewport_height, 0 };
 
     // Calculate the horizontal and vertical delta vectors from pixel to pixel.
     const pixel_delta_u: Vec3 = vec.divScalar(viewport_u, image_width);
@@ -88,7 +88,7 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
         try stdout.flush();
 
         for (0..self.image_width) |i| {
-            pixel_colour = vec.empty;
+            pixel_colour = vec.zero;
             for (0..self.samples_per_pixel) |_| {
                 ray = self.getRay(i, j);
                 pixel_colour += rayColour(&ray, self.max_ray_bounces, world);
@@ -127,14 +127,18 @@ fn getRay(self: Camera, i: usize, j: usize) Ray {
 
 /// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
 fn sampleSquare() Vec3 {
-    return vec.init(vec.randomFloat() - 0.5, vec.randomFloat() - 0.5, 0);
+    return .{
+        vec.randomFloat() - 0.5,
+        vec.randomFloat() - 0.5,
+        0,
+    };
 }
 
 /// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
 fn rayColour(r: *Ray, depth: comptime_int, world: *HittableList) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth < 0) {
-        return vec.empty;
+        return vec.zero;
     }
 
     var rec: HitRecord = undefined;
@@ -142,16 +146,15 @@ fn rayColour(r: *Ray, depth: comptime_int, world: *HittableList) Colour {
     if (world.hit(r, interval, &rec)) {
         var scattered: Ray = undefined;
         if (rec.mat.scatter(r, &rec, &scattered)) {
-            const attenuation: Colour = switch (rec.mat.*) {
-                .lambertian => |albedo| albedo,
-                .metal => |metal| metal.albedo,
+            const attenuation: Colour = switch (rec.mat) {
+                inline else => |m| m.albedo,
             };
             return attenuation * rayColour(&scattered, depth - 1, world);
         }
-        return vec.empty;
+        return vec.zero;
     }
 
     const unit_direction: Vec3 = vec.normalize(r.dir);
     const a: f64 = 0.5 * (vec.y(unit_direction) + 1.0);
-    return vec.scale(Colour{ 1, 1, 1 }, 1.0 - a) + vec.scale(Colour{ 0.5, 0.7, 1 }, a);
+    return vec.scale(Colour{ 1, 1, 1 }, 1 - a) + vec.scale(Colour{ 0.5, 0.7, 1 }, a);
 }

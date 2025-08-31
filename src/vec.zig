@@ -12,16 +12,14 @@ pub const Colour = Vec3;
 pub const sqrt2: f64 = @as(f64, math.sqrt2);
 pub const sqrt3: f64 = sqrt(@as(f64, 3));
 pub const infinity = std.math.inf(f64);
-pub const allowed_float_min: comptime_float = 1e-160;
-pub const float_epsilon: f64 = 1e-12;
-pub const float_tolerance_vec: Vec3 = @splat(float_epsilon);
+pub const tolerance = 1e-8;
+pub const tolerance_vec: Vec3 = @splat(1e-8);
 
+pub const zero: Vec3 = @splat(0);
+pub const one: Vec3 = @splat(1);
 pub const unit_vec_x: Vec3 = .{ 1, 0, 0 };
 pub const unit_vec_y: Vec3 = .{ 0, 1, 0 };
 pub const unit_vec_z: Vec3 = .{ 0, 0, 1 };
-pub const ones: Vec3 = .{ 1, 1, 1 };
-
-pub const empty: Vec3 = @splat(0);
 
 pub inline fn init(e0: f64, e1: f64, e2: f64) Vec3 {
     return .{ e0, e1, e2 };
@@ -55,14 +53,14 @@ pub inline fn divScalar(v: Vec3, t: f64) Vec3 {
     return v / @as(Vec3, @splat(t));
 }
 
-pub fn length(v: Vec3) f64 {
-    if (isUnitAxis(v)) return 1;
-    if (hasTwoOnes(v)) return sqrt2;
-    if (isAllOnes(v)) return sqrt3;
-    return sqrt(lengthSquared(v));
+pub fn magnitude(v: Vec3) f64 {
+    // if (isBasisVec(v)) return 1;
+    // if (hasTwoOnes(v)) return sqrt2;
+    // if (isAllOnes(v)) return sqrt3;
+    return @sqrt(magnitude2(v));
 }
 
-pub fn lengthSquared(v: Vec3) f64 {
+pub fn magnitude2(v: Vec3) f64 {
     return @reduce(.Add, v * v);
 }
 
@@ -87,58 +85,45 @@ pub fn cross(u: Vec3, v: Vec3) Vec3 {
 }
 
 pub fn normalize(v: Vec3) Vec3 {
-    const len = length(v);
-    return divScalar(v, len);
+    return divScalar(v, magnitude(v));
 }
 
-pub fn hasTwoOnes(v: Vec3) bool {
-    const abs_v: Vec3 = @abs(v);
-    const comparison: @Vector(3, bool) = @abs(abs_v - ones) <= float_tolerance_vec;
-    return @reduce(.Add, @as(@Vector(3, u8), @intFromBool(comparison))) == 2;
+pub fn unit(v: Vec3) Vec3 {
+    const mag = magnitude(v);
+    if (mag == 0)
+        return zero;
+
+    return divScalar(v, mag);
 }
 
-pub fn isAllOnes(v: Vec3) bool {
-    return eql(@abs(v), ones);
+/// Returns the reflected vector from an incident vector `v` on a surface with normal vector `n`.
+pub fn reflect(v: Vec3, n: Vec3) Vec3 {
+    return v - scale(n, 2 * dot(v, n));
 }
 
-pub fn isUnitAxis(v: Vec3) bool {
-    const abs_v: Vec3 = @abs(v);
-    return eql(abs_v, unit_vec_x) or eql(abs_v, unit_vec_y) or eql(abs_v, unit_vec_z);
-}
-
-pub inline fn isUnitVec(v: Vec3) bool {
-    return std.math.approxEqAbs(f64, lengthSquared(v), 1, float_epsilon);
+/// Returns the refracetd vector resulting from the incident vector `v` passing
+/// through two media (whose ratio of refractive indices is given by `eta_i/eta_t`),
+/// separated by a surface with normal vector `n`.
+///
+/// The result is calculated using Snell's law.
+pub fn refract(v: Vec3, n: Vec3, refractive_index_ratio: f64) Vec3 {
+    const cos_theta = @min(dot(-v, n), 1);
+    const r_out_perp = scale(@mulAdd(Vec3, @splat(cos_theta), n, v), refractive_index_ratio);
+    const r_out_parallel = scale(n, -@sqrt(@abs(1 - magnitude2(r_out_perp))));
+    return r_out_perp + r_out_parallel;
 }
 
 pub inline fn eql(u: Vec3, v: Vec3) bool {
-    return @reduce(.And, @abs(u - v) <= float_tolerance_vec);
+    return @reduce(.And, @abs(u - v) <= tolerance_vec);
 }
 
 pub inline fn nearZero(v: Vec3) bool {
-    return @reduce(.And, @abs(v) < float_tolerance_vec);
+    return @reduce(.And, @abs(v) < tolerance_vec);
 }
 
-// pub fn approxEqAbs(comptime T: type, u: T, v: T, tolerance: T) bool {
-//     switch (@typeInfo(T)) {
-//         .float, .comptime_float => {
-//             return math.approxEqAbs(f64, u, v, tolerance);
-//         },
-//         .vector => {
-//             assert(@reduce(.And, tolerance >= empty));
-//             // Catches exact matches, signed zero, infinities.
-//             if (@reduce(.And, u == v))
-//                 return true;
-//
-//             // // any NaN element
-//             // if (@reduce(.Or, math.isNan(u) or math.isNan(v)))
-//             //     return false;
-//
-//             // abs(u - v) <= tolerance, component-wise
-//             return @reduce(.And, @abs(u - v) <= tolerance);
-//         },
-//         else => @compileError("approxEqAbs only supports floats or vectors of floats"),
-//     }
-// }
+pub inline fn isUnit(v: Vec3) bool {
+    return std.math.approxEqAbs(f64, magnitude2(v), 1, std.math.floatEpsAt(f64, 1));
+}
 
 /// Returns random real in [0, 1).
 pub inline fn randomFloat() f64 {
@@ -168,16 +153,12 @@ pub fn randomVecRange(min: f64, max: f64) Vec3 {
     };
 }
 
-pub fn unitVec(v: Vec3) Vec3 {
-    return divScalar(v, length(v));
-}
-
 pub fn randomUnitVec() Vec3 {
     while (true) {
-        const p = randomVecRange(-1, 1);
-        const len_square: f64 = lengthSquared(p);
-        if (allowed_float_min < len_square and len_square <= 1) {
-            return divScalar(p, sqrt(len_square));
+        const v = randomVecRange(-1, 1);
+        const mag_sq = magnitude2(v);
+        if (std.math.floatEpsAt(f64, 0) < mag_sq and mag_sq <= 1) {
+            return divScalar(v, sqrt(mag_sq));
         }
     }
 }
@@ -192,9 +173,21 @@ pub fn randomVecOnHemisphere(normal: Vec3) Vec3 {
     return -on_unit_sphere;
 }
 
-/// Returns the reflected vector from an incident vector `v` on a surface with normal vector `n`.
-pub fn reflect(v: Vec3, n: Vec3) Vec3 {
-    return v - scale(n, 2 * dot(v, n));
+pub fn hasTwoOnes(v: Vec3) bool {
+    const abs_v: Vec3 = @abs(v);
+    const comparison: @Vector(3, bool) = @abs(abs_v - one) <= tolerance_vec;
+    return @reduce(.Add, @as(@Vector(3, u8), @intFromBool(comparison))) == 2;
+}
+
+pub fn isAllOnes(v: Vec3) bool {
+    return eql(@abs(v), one);
+}
+
+pub fn isBasisVec(v: Vec3) bool {
+    const abs_v: Vec3 = @abs(v);
+    if (eql(abs_v, unit_vec_x)) return true;
+    if (eql(abs_v, unit_vec_y)) return true;
+    if (eql(abs_v, unit_vec_z)) return true;
 }
 
 pub fn print(v: Vec3) void {
@@ -204,12 +197,6 @@ pub fn print(v: Vec3) void {
 test "init vector" {
     const v = init(1, 2, 3);
     try expectEqual(v, @Vector(3, f64){ 1, 2, 3 });
-}
-
-test "empty vector" {
-    const v = empty;
-    try expectEqual(v, [_]f64{0} ** 3);
-    try expectEqual(v, @as(Vec3, @splat(0)));
 }
 
 test "equality" {
@@ -223,7 +210,7 @@ test "create a vector from a scalar" {
     const c: f64 = 5.018972;
     const v = fromScalar(c);
     const expected: @Vector(3, f64) = [_]f64{c} ** 3;
-    try expectEqual(v, expected);
+    try expectEqual(expected, v);
 }
 
 test "create a vector from an array" {
@@ -244,7 +231,7 @@ test "access vector components" {
 test "scale" {
     const v = scale(Vec3{ 1, 2, -3.5 }, 2);
     try expect(@TypeOf(v) == Vec3);
-    try expectEqual(v, Vec3{ 2, 4, -7 });
+    try expectEqual(v, .{ 2, 4, -7 });
 }
 
 test "scalar division" {
@@ -253,11 +240,10 @@ test "scalar division" {
 }
 
 test "dot product" {
-    const u = init(1, 0, 0);
-    const v = init(0, 1, 0);
-
-    const a = init(1, -1, 1);
-    const b = init(0.5, 1, 1);
+    const u: Vec3 = .{ 1, 0, 0 };
+    const v: Vec3 = .{ 0, 1, 0 };
+    const a: Vec3 = .{ 1, -1, 1 };
+    const b: Vec3 = .{ 0.5, 1, 1 };
     try expect(dot(u, v) == 0);
     try expect(dot(a, b) == 0.5);
 }
@@ -266,7 +252,6 @@ test "cross product" {
     const xx = init(1, 0, 0);
     const yy = init(0, 1, 0);
     const zz = init(0, 0, 1);
-    const zero = empty;
     try expectEqual(cross(xx, yy), zz);
     try expectEqual(cross(yy, zz), xx);
     try expectEqual(cross(zz, xx), yy);
@@ -279,9 +264,9 @@ test "length squared" {
     const u = init(1, 1, 0);
     const v = init(1, 1, 1);
     const w = init(-1, 1, 0);
-    const u_l2 = lengthSquared(u);
-    const v_l2 = lengthSquared(v);
-    const w_l2 = lengthSquared(w);
+    const u_l2 = magnitude2(u);
+    const v_l2 = magnitude2(v);
+    const w_l2 = magnitude2(w);
     try expect(u_l2 == 2);
     try expect(v_l2 == 3);
     try expect(w_l2 == 2);
@@ -291,15 +276,15 @@ test "length" {
     const u = init(-1, 0, 0);
     const v = init(1, 0, 1);
     const w = init(1, 1, 1);
-    try expect(length(u) == 1);
-    try expect(length(v) == sqrt2);
-    try expect(length(w) == sqrt3);
+    try expect(magnitude(u) == 1);
+    try expect(magnitude(v) == sqrt2);
+    try expect(magnitude(w) == sqrt3);
 }
 
 test "normalize" {
     const v = init(1, -1, -1);
     const v_norm = normalize(v);
-    const norm_vlen = length(v_norm);
+    const norm_vlen = magnitude(v_norm);
     try expect(norm_vlen == 1);
 }
 
@@ -353,17 +338,19 @@ test "random vec with all element in [min,max)" {
     try expect(@reduce(.And, v < @as(Vec3, @splat(max))));
 }
 
-test "is unit vector" {
-    const v: Vec3 = .{ -2, 6, 4 };
-    const unit = divScalar(v, length(v));
-    try expect(isUnitVec(unit));
+test "unit vector" {
+    const v: Vec3 = unit(.{ -2, 6, 4 });
+    try expect(isUnit(v));
 }
 
 test "random unit vector" {
-    try expect(isUnitVec(randomUnitVec()));
+    const v = randomUnitVec();
+    try expect(isUnit(v));
+    try expect(@reduce(.And, v >= @as(Vec3, @splat(-1))));
+    try expect(@reduce(.And, v < @as(Vec3, @splat(1))));
 }
 
 test "near zero" {
-    try expect(!nearZero(float_tolerance_vec));
+    try expect(!nearZero(tolerance_vec));
     try expect(nearZero(.{ 1e-13, -1e-13, 0 }));
 }
