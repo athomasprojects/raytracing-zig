@@ -18,12 +18,12 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image16.ppm";
+    const ppm_fname = "image18.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
     var world: HittableList = try .init(allocator, world_capacity);
-    try world.objects.appendSlice(allocator, &initWorld1());
+    try world.objects.appendSlice(allocator, &initWorld());
 
     // Create writer to stdout.
     var stdout_buffer: [4096]u8 = undefined;
