@@ -42,10 +42,10 @@ pub const Material = union(enum) {
     },
     dielectric: struct {
         // zig fmt: off
+        albedo: Colour,
         refraction_index: f64, // Refractive index in vacuum or air, or the
                                // ratio of the material's refractive index over
                                // the refractive index of the enclosing media.
-        albedo: Colour,
 
         // zig fmt: on
         fn scatter(self: @This(), ray_in: *Ray, rec: *HitRecord, scattered_ray: *Ray) bool {

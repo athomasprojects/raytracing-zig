@@ -39,15 +39,15 @@ const Camera = @This();
 
 pub const default: Camera = .init(
     16.0 / 9.0,
-    400,
-    100,
+    1200,
+    500,
     50,
     20,
-    Point3{ -2, 2, 1 },
-    Point3{ 0, 0, -1 },
+    Point3{ 13, 2, 3 },
+    Point3{ 0, 0, 0 },
     Vec3{ 0, 1, 0 },
+    0.6,
     10,
-    3.4,
 );
 
 pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int, max_ray_bounces: comptime_int, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Camera {
@@ -156,6 +156,7 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
 
 /// Construct a camera ray originating from the defocus disk and directed at a randomly sampled point around the pixel location (i, j).
 fn getRay(self: Camera, i: usize, j: usize) Ray {
+    @setFloatMode(.optimized);
     const offset: Vec3 = sampleSquare();
     const pixel_sample = self._pixel00_loc +
         vec.scale(

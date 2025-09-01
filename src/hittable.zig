@@ -62,6 +62,10 @@ pub const HittableList = struct {
     pub fn add(self: *HittableList, object: Sphere) !void {
         try self.objects.append(self.allocator, object);
     }
+
+    pub fn addSlice(self: *HittableList, object: []Sphere) !void {
+        try self.objects.appendSlice(self.allocator, object);
+    }
 };
 
 pub const Sphere = struct {
