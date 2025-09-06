@@ -10,7 +10,7 @@ const Sphere = hittable.Sphere;
 const Ray = @import("Ray.zig");
 const Material = @import("material.zig").Material;
 
-const world_capacity = 500;
+const world_capacity = 490;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -18,7 +18,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image21.ppm";
+    const ppm_fname = "image24.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
@@ -108,18 +108,21 @@ fn initWorld2(world: *HittableList) !void {
 
             const p: Vec3 = center - Point3{ 4, 0.2, 0 };
             if (vec.magnitude(p) > 0.9) {
-                const material: Material = if (choose_mat < 0.8) // Diffuse
+                const material: Material = if (choose_mat < 0.8)
+                    // Diffuse
                     .{
                         .lambertian = .{ .albedo = vec.randomVec() * vec.randomVec() },
                     }
-                else if (choose_mat < 0.95) // Metal
+                else if (choose_mat < 0.95)
+                    // Metal
                     .{
                         .metal = .{
                             .albedo = vec.randomVecRange(0.5, 1),
                             .fuzz = vec.randomFloatRange(0, 0.5),
                         },
                     }
-                else // Glass
+                else
+                    // Glass
                     .{
                         .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
                     };

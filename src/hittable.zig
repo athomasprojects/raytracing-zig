@@ -15,7 +15,7 @@ pub const HitRecord = struct {
     front_face: bool,
     mat: Material,
 
-    pub fn update(ray: *Ray, t: f64, center: Vec3, radius: f64, mat: Material) HitRecord {
+    pub fn init(ray: Ray, t: f64, center: Vec3, radius: f64, mat: Material) HitRecord {
         const p = ray.at(t);
         const outward_normal = vec.divScalar(p - center, radius); // Assumed to have unit length.
         const front_face = vec.dot(ray.dir, outward_normal) < 0;
@@ -44,19 +44,17 @@ pub const HittableList = struct {
         self.objects.deinit();
     }
 
-    pub fn hit(self: *HittableList, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
-        var temp_rec: HitRecord = undefined;
-        var hit_anything = false;
-        var closest_so_far = ray_interval.max;
+    pub fn hitAll(self: *HittableList, ray: Ray, ray_interval: Interval) ?HitRecord {
+        var hit: ?HitRecord = null;
+        var closest_so_far = vec.infinity;
 
         for (self.objects.items) |object| {
-            if (object.hit(ray, .init(ray_interval.min, closest_so_far), &temp_rec)) {
-                hit_anything = true;
-                closest_so_far = temp_rec.t;
-                rec.* = temp_rec;
+            if (object.hit(ray, .{ .min = ray_interval.min, .max = closest_so_far })) |h| {
+                closest_so_far = h.t;
+                hit = h;
             }
         }
-        return hit_anything;
+        return hit;
     }
 
     pub fn add(self: *HittableList, object: Sphere) !void {
@@ -81,7 +79,7 @@ pub const Sphere = struct {
         };
     }
 
-    fn hit(self: Sphere, ray: *Ray, ray_interval: Interval, rec: *HitRecord) bool {
+    fn hit(self: Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
         const oc: Vec3 = self.center - ray.origin; // vector from the ray origin to the center of the sphere.
         const a: f64 = vec.magnitude2(ray.dir);
         const h: f64 = vec.dot(ray.dir, oc);
@@ -92,8 +90,7 @@ pub const Sphere = struct {
         // discriminant > 0 : 2 solutions (ray intersects the sphere at 2 unique points).
         const discriminant: f64 = h * h - a * c;
 
-        if (discriminant < 0)
-            return false;
+        if (discriminant < 0) return null;
 
         // Find the nearest root that lies in the acceptable range.
         const sqrtd = std.math.sqrt(discriminant);
@@ -101,18 +98,9 @@ pub const Sphere = struct {
         if (!ray_interval.surrounds(root)) {
             root = (h + sqrtd) / a;
             if (!ray_interval.surrounds(root)) {
-                return false;
+                return null;
             }
         }
-
-        // Update hit record.
-        rec.* = .update(
-            ray,
-            root,
-            self.center,
-            self.radius,
-            self.mat,
-        );
-        return true;
+        return .init(ray, root, self.center, self.radius, self.mat);
     }
 };

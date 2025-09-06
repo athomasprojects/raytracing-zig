@@ -21,18 +21,6 @@ pub const unit_vec_x: Vec3 = .{ 1, 0, 0 };
 pub const unit_vec_y: Vec3 = .{ 0, 1, 0 };
 pub const unit_vec_z: Vec3 = .{ 0, 0, 1 };
 
-pub inline fn init(e0: f64, e1: f64, e2: f64) Vec3 {
-    return .{ e0, e1, e2 };
-}
-
-pub inline fn fromScalar(value: f64) Vec3 {
-    return @splat(value);
-}
-
-pub inline fn loadArr(arr: [3]f64) Vec3 {
-    return arr;
-}
-
 pub inline fn x(v: Vec3) f64 {
     return v[0];
 }
@@ -45,18 +33,23 @@ pub inline fn z(v: Vec3) f64 {
     return v[2];
 }
 
+pub fn splat(n: anytype) Vec3 {
+    return switch (@TypeOf(n)) {
+        comptime_int, usize => @splat(@floatFromInt(n)),
+        comptime_float, f64 => @splat(n),
+        else => unreachable,
+    };
+}
+
 pub inline fn scale(v: Vec3, t: f64) Vec3 {
-    return v * @as(Vec3, @splat(t));
+    return v * splat(t);
 }
 
 pub inline fn divScalar(v: Vec3, t: f64) Vec3 {
-    return v / @as(Vec3, @splat(t));
+    return v / splat(t);
 }
 
 pub fn magnitude(v: Vec3) f64 {
-    // if (isBasisVec(v)) return 1;
-    // if (hasTwoOnes(v)) return sqrt2;
-    // if (isAllOnes(v)) return sqrt3;
     return @sqrt(magnitude2(v));
 }
 
@@ -74,13 +67,12 @@ pub fn cross(u: Vec3, v: Vec3) Vec3 {
     // y = u.z*v.x - u.x*v.z
     // z = u.x*v.y - u.y*v.x
 
-    const yzx_mask = [_]i32{ 1, 2, 0 };
-    const zxy_mask = [_]i32{ 2, 0, 1 };
-    const u_yzx = @shuffle(f64, u, u, yzx_mask);
-    const v_zxy = @shuffle(f64, v, v, zxy_mask);
-    const u_zxy = @shuffle(f64, u, u, zxy_mask);
-    const v_yzx = @shuffle(f64, v, v, yzx_mask);
-
+    const yzx_mask = [3]i32{ 1, 2, 0 };
+    const zxy_mask = [3]i32{ 2, 0, 1 };
+    const u_yzx: Vec3 = @shuffle(f64, u, undefined, yzx_mask);
+    const v_zxy: Vec3 = @shuffle(f64, v, undefined, zxy_mask);
+    const u_zxy: Vec3 = @shuffle(f64, u, undefined, zxy_mask);
+    const v_yzx: Vec3 = @shuffle(f64, v, undefined, yzx_mask);
     return u_yzx * v_zxy - u_zxy * v_yzx;
 }
 
@@ -121,7 +113,7 @@ pub inline fn nearZero(v: Vec3) bool {
     return @reduce(.And, @abs(v) < tolerance_vec);
 }
 
-pub inline fn isUnit(v: Vec3) bool {
+pub fn isUnit(v: Vec3) bool {
     return std.math.approxEqAbs(f64, magnitude2(v), 1, std.math.floatEpsAt(f64, 1));
 }
 
@@ -179,12 +171,8 @@ pub fn randomVecInUnitDisk() Vec3 {
 
 /// Returns random unit vector on the same hemisphere as the surface normal.
 pub fn randomVecOnHemisphere(normal: Vec3) Vec3 {
-    const on_unit_sphere: Vec3 = randomUnitVec();
-    if (dot(on_unit_sphere, normal) > 0) {
-        // The random vector is in the same hemisphere as the surface normal.
-        return on_unit_sphere;
-    }
-    return -on_unit_sphere;
+    const v: Vec3 = randomUnitVec();
+    return if (dot(v, normal) > 0) v else -v;
 }
 
 pub fn hasTwoOnes(v: Vec3) bool {
@@ -209,7 +197,7 @@ pub fn print(v: Vec3) void {
 }
 
 test "init vector" {
-    const v = init(1, 2, 3);
+    const v: Vec3 = .{ 1, 2, 3 };
     try expectEqual(v, @Vector(3, f64){ 1, 2, 3 });
 }
 
@@ -222,18 +210,13 @@ test "equality" {
 
 test "create a vector from a scalar" {
     const c: f64 = 5.018972;
-    const v = fromScalar(c);
+    const v = splat(c);
     const expected: @Vector(3, f64) = [_]f64{c} ** 3;
     try expectEqual(expected, v);
 }
 
-test "create a vector from an array" {
-    const arr: [3]f64 = .{ 2, 5, -6.9 };
-    try expectEqual(loadArr(arr), arr);
-}
-
 test "access vector components" {
-    const v = init(1, 2, 3);
+    const v: Vec3 = .{ 1, 2, 3 };
     const vx = x(v);
     const vy = y(v);
     const vz = z(v);
@@ -263,9 +246,9 @@ test "dot product" {
 }
 
 test "cross product" {
-    const xx = init(1, 0, 0);
-    const yy = init(0, 1, 0);
-    const zz = init(0, 0, 1);
+    const xx: Vec3 = .{ 1, 0, 0 };
+    const yy: Vec3 = .{ 0, 1, 0 };
+    const zz: Vec3 = .{ 0, 0, 1 };
     try expectEqual(cross(xx, yy), zz);
     try expectEqual(cross(yy, zz), xx);
     try expectEqual(cross(zz, xx), yy);
@@ -275,9 +258,9 @@ test "cross product" {
 }
 
 test "length squared" {
-    const u = init(1, 1, 0);
-    const v = init(1, 1, 1);
-    const w = init(-1, 1, 0);
+    const u: Vec3 = .{ 1, 1, 0 };
+    const v: Vec3 = .{ 1, 1, 1 };
+    const w: Vec3 = .{ -1, 1, 0 };
     const u_l2 = magnitude2(u);
     const v_l2 = magnitude2(v);
     const w_l2 = magnitude2(w);
@@ -287,36 +270,34 @@ test "length squared" {
 }
 
 test "length" {
-    const u = init(-1, 0, 0);
-    const v = init(1, 0, 1);
-    const w = init(1, 1, 1);
+    const u: Vec3 = .{ -1, 0, 0 };
+    const v: Vec3 = .{ 1, 0, 1 };
+    const w: Vec3 = .{ 1, 1, 1 };
     try expect(magnitude(u) == 1);
     try expect(magnitude(v) == sqrt2);
     try expect(magnitude(w) == sqrt3);
 }
 
 test "normalize" {
-    const v = init(1, -1, -1);
+    const v: Vec3 = .{ 1, -1, -1 };
     const v_norm = normalize(v);
     const norm_vlen = magnitude(v_norm);
     try expect(norm_vlen == 1);
 }
 
 test "two elements are +/- 1" {
-    const u = init(1, -1, 0);
-    const v = init(1, 1, 0);
-    const w = init(-1, -1, 1);
-
+    const u: Vec3 = .{ 1, -1, 0 };
+    const v: Vec3 = .{ 1, 1, 0 };
+    const w: Vec3 = .{ -1, -1, 1 };
     try expect(hasTwoOnes(u));
     try expect(hasTwoOnes(v));
     try expect(!hasTwoOnes(w));
 }
 
 test "all +/- ones" {
-    const u = init(1, -1, 1);
-    const v = init(1, 1, -1);
-    const w = init(-1, -1, -1);
-
+    const u: Vec3 = .{ 1, -1, 1 };
+    const v: Vec3 = .{ 1, 1, -1 };
+    const w: Vec3 = .{ -1, -1, -1 };
     try expect(isAllOnes(u));
     try expect(isAllOnes(v));
     try expect(isAllOnes(w));
@@ -339,8 +320,8 @@ test "random float in [min,max)" {
 test "random vec with all elements [0,1)" {
     const v = randomVec();
     try expect(@TypeOf(v) == Vec3);
-    try expect(@reduce(.And, v >= @as(Vec3, @splat(0))));
-    try expect(@reduce(.And, v < @as(Vec3, @splat(1))));
+    try expect(@reduce(.And, v >= splat(0)));
+    try expect(@reduce(.And, v < splat(1)));
 }
 
 test "random vec with all element in [min,max)" {
@@ -348,8 +329,8 @@ test "random vec with all element in [min,max)" {
     const max: f64 = 426.8;
     const v = randomVecRange(min, max);
     try expect(@TypeOf(v) == Vec3);
-    try expect(@reduce(.And, v >= @as(Vec3, @splat(min))));
-    try expect(@reduce(.And, v < @as(Vec3, @splat(max))));
+    try expect(@reduce(.And, v >= splat(min)));
+    try expect(@reduce(.And, v < splat(max)));
 }
 
 test "unit vector" {
@@ -360,8 +341,8 @@ test "unit vector" {
 test "random unit vector" {
     const v = randomUnitVec();
     try expect(isUnit(v));
-    try expect(@reduce(.And, v >= @as(Vec3, @splat(-1))));
-    try expect(@reduce(.And, v < @as(Vec3, @splat(1))));
+    try expect(@reduce(.And, v >= splat(-1)));
+    try expect(@reduce(.And, v < splat(1)));
 }
 
 test "near zero" {

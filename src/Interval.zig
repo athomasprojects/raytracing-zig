@@ -3,30 +3,26 @@ const vec = @import("vec.zig");
 
 min: f64,
 max: f64,
-const Interval = @This();
+const Self = @This();
 
-const empty: Interval = .{
+const empty: Self = .{
     .min = vec.infinity,
     .max = -vec.infinity,
 };
 
-const universe: Interval = .{
+const universe: Self = .{
     .min = -vec.infinity,
     .max = vec.infinity,
 };
 
-pub fn init(min: f64, max: f64) Interval {
-    return .{ .min = min, .max = max };
-}
-
-pub fn contains(self: Interval, x: f64) bool {
+pub fn contains(self: Self, x: f64) bool {
     return self.min <= x and x <= self.max;
 }
 
-pub fn surrounds(self: Interval, x: f64) bool {
+pub fn surrounds(self: Self, x: f64) bool {
     return self.min < x and x < self.max;
 }
 
-pub fn clamp(self: Interval, x: f64) f64 {
+pub fn clamp(self: Self, x: f64) f64 {
     return std.math.clamp(x, self.min, self.max);
 }

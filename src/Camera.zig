@@ -1,5 +1,4 @@
 const std = @import("std");
-const colour = @import("colour.zig");
 const vec = @import("vec.zig");
 const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
@@ -16,7 +15,6 @@ const Writer = std.Io.Writer;
 aspect_ratio: comptime_float, // Ratio of the image width to image height.
 image_width: comptime_int, // Rendered image width in pixel count.
 samples_per_pixel: comptime_int, // Count of random samples for each pixel.
-max_ray_bounces: comptime_int, // Maximum number of ray bounces into scene.
 vertical_fov_deg: comptime_float, // Vertical field of view (viewing angle), specified in degrees.
 look_from: Point3, // Point camera is looking from.
 look_at: Point3, // Point camera is looking from.
@@ -28,29 +26,30 @@ _center: Point3, // Camera center.
 _pixel00_loc: Point3, // Location of pixel (0,0).
 _pixel_delta_u: Vec3, // Offset to pixel to the right.
 _pixel_delta_v: Vec3, // Offset to pixel below.
-_pixel_samples_scale: f64, // Colour scale factor for a sum of pixel samples.
+_pixel_samples_scale: Vec3, // Colour scale factor for a sum of pixel samples.
 _u: Vec3, // Camera frame basis vector.
 _v: Vec3, // Camera frame basis vector.
 _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
 _defocus_disk_u: Vec3, // Defocus disk horizontal radius.
 _defocus_disk_v: Vec3, // Defocus disk vertical radius.
 
+const max_recursion_depth = 50;
+
 const Camera = @This();
 
 pub const default: Camera = .init(
     16.0 / 9.0,
     1200,
-    500,
     50,
     20,
     Point3{ 13, 2, 3 },
-    Point3{ 0, 0, 0 },
+    vec.zero,
     Vec3{ 0, 1, 0 },
     0.6,
     10,
 );
 
-pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_int, max_ray_bounces: comptime_int, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Camera {
+pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: f64, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Camera {
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
@@ -89,7 +88,6 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
         .aspect_ratio = aspect_ratio,
         .image_width = image_width,
         .samples_per_pixel = samples_per_pixel,
-        .max_ray_bounces = max_ray_bounces,
         .vertical_fov_deg = vertical_fov_deg,
         .look_from = look_from,
         .look_at = look_at,
@@ -100,7 +98,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
         ._pixel00_loc = pixel00_loc,
         ._pixel_delta_u = pixel_delta_u,
         ._pixel_delta_v = pixel_delta_v,
-        ._pixel_samples_scale = 1.0 / @as(f64, samples_per_pixel),
+        ._pixel_samples_scale = vec.splat(1.0 / samples_per_pixel),
         ._w = w,
         ._u = u,
         ._v = v,
@@ -124,9 +122,7 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
         },
     );
 
-    var ray: Ray = undefined;
     var pixel_colour: Colour = undefined;
-    const intensity: Interval = .init(0, 0.999);
     for (0..self._image_height) |j| {
         // Progress indicator.
         try stdout.print("Scanlines remaining: {d}\r", .{self._image_height - j});
@@ -135,15 +131,16 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
         for (0..self.image_width) |i| {
             pixel_colour = vec.zero;
             for (0..self.samples_per_pixel) |_| {
-                ray = self.getRay(i, j);
-                pixel_colour += rayColour(&ray, self.max_ray_bounces, world);
+                const ray = self.getRay(@floatFromInt(i), @floatFromInt(j));
+                pixel_colour += rayColour(ray, 0, world);
             }
-            pixel_colour = vec.scale(pixel_colour, self._pixel_samples_scale);
+            pixel_colour *= self._pixel_samples_scale;
 
             // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
-            const r_byte: u8 = @intFromFloat(256 * intensity.clamp(colour.gammaFromLinear(pixel_colour[0])));
-            const g_byte: u8 = @intFromFloat(256 * intensity.clamp(colour.gammaFromLinear(pixel_colour[1])));
-            const b_byte: u8 = @intFromFloat(256 * intensity.clamp(colour.gammaFromLinear(pixel_colour[2])));
+            const max = 255.999;
+            const r_byte: u8 = @intFromFloat(max * toGamma2(pixel_colour[0]));
+            const g_byte: u8 = @intFromFloat(max * toGamma2(pixel_colour[1]));
+            const b_byte: u8 = @intFromFloat(max * toGamma2(pixel_colour[2]));
 
             // Write pixel colour components.
             try file_out.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
@@ -155,19 +152,12 @@ pub fn render(self: Camera, stdout: *Writer, file_out: *Writer, world: *Hittable
 }
 
 /// Construct a camera ray originating from the defocus disk and directed at a randomly sampled point around the pixel location (i, j).
-fn getRay(self: Camera, i: usize, j: usize) Ray {
+fn getRay(self: Camera, i: f64, j: f64) Ray {
     @setFloatMode(.optimized);
     const offset: Vec3 = sampleSquare();
     const pixel_sample = self._pixel00_loc +
-        vec.scale(
-            self._pixel_delta_u,
-            @as(f64, @floatFromInt(i)) + vec.x(offset),
-        ) +
-        vec.scale(
-            self._pixel_delta_v,
-            @as(f64, @floatFromInt(j)) + vec.y(offset),
-        );
-
+        self._pixel_delta_u * vec.splat(vec.x(offset) + i) +
+        self._pixel_delta_v * vec.splat(vec.y(offset) + j);
     const ray_origin = if (self.defocus_angle_deg <= 0) self._center else self.defocusDiskSample();
     return .init(ray_origin, pixel_sample - ray_origin);
 }
@@ -189,27 +179,28 @@ fn defocusDiskSample(self: Camera) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-/// Returns the ray colour as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
-fn rayColour(r: *Ray, depth: comptime_int, world: *HittableList) Colour {
+fn rayColour(r: Ray, depth: comptime_int, world: *HittableList) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
-    if (depth < 0) {
-        return vec.zero;
+    if (depth == max_recursion_depth) return vec.zero;
+
+    const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
+    if (world.hitAll(r, interval)) |hit| {
+        const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
+        const attenuation: Colour = switch (hit.mat) {
+            inline else => |m| m.albedo,
+        };
+        return attenuation * rayColour(scattered, depth + 1, world);
     }
 
-    var rec: HitRecord = undefined;
-    const interval: Interval = .init(0.001, vec.infinity);
-    if (world.hit(r, interval, &rec)) {
-        var scattered: Ray = undefined;
-        if (rec.mat.scatter(r, &rec, &scattered)) {
-            const attenuation: Colour = switch (rec.mat) {
-                inline else => |m| m.albedo,
-            };
-            return attenuation * rayColour(&scattered, depth - 1, world);
-        }
-        return vec.zero;
-    }
-
+    // If the ray does not hit any of the world objects, we compute the ray colour
+    // as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
+    // This renders the sky.
     const unit_direction: Vec3 = vec.normalize(r.dir);
     const a: f64 = 0.5 * (vec.y(unit_direction) + 1.0);
     return vec.scale(Colour{ 1, 1, 1 }, 1 - a) + vec.scale(Colour{ 0.5, 0.7, 1 }, a);
+}
+
+/// Applies a linear space to gamma space transform for gamma 2.
+pub fn toGamma2(colour: f64) f64 {
+    return if (colour > 0) @sqrt(colour) else 0;
 }
