@@ -1,14 +1,13 @@
-const std = @import("std");
-const Camera = @import("Camera.zig");
 const hittable = @import("hittable.zig");
+const std = @import("std");
 const vec = @import("vec.zig");
-const Vec3 = vec.Vec3;
-const Point3 = vec.Point3;
-const Colour = vec.Colour;
+
+const Camera = @import("Camera.zig");
 const HittableList = hittable.HittableList;
-const Sphere = hittable.Sphere;
-const Ray = @import("Ray.zig");
 const Material = @import("material.zig").Material;
+const Point3 = vec.Point3;
+const Sphere = hittable.Sphere;
+const Vec3 = vec.Vec3;
 
 const world_capacity = 490;
 

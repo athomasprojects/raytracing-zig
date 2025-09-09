@@ -1,24 +1,22 @@
 const std = @import("std");
 const vec = @import("vec.zig");
-const hittable = @import("hittable.zig");
-const Vec3 = vec.Vec3;
-const Point3 = vec.Point3;
+
 const Colour = vec.Colour;
-const HitRecord = hittable.HitRecord;
-const HittableList = hittable.HittableList;
+const Vec3 = vec.Vec3;
 const Ray = @import("Ray.zig");
+const HitRecord = @import("hittable.zig").HitRecord;
 
 pub const Material = union(enum) {
     lambertian: struct {
         albedo: Colour,
 
-        fn scatter(_: @This(), _: Ray, rec: HitRecord) ?Ray {
-            var scatter_dir: Vec3 = rec.normal + vec.randomUnitVec();
+        fn scatter(_: @This(), _: Ray, hit: HitRecord) ?Ray {
+            var scatter_dir: Vec3 = hit.normal + vec.randomUnitVec();
             // Catch degenerate scatter direction.
             if (vec.nearZero(scatter_dir))
-                scatter_dir = rec.normal;
+                scatter_dir = hit.normal;
 
-            return .init(rec.p, scatter_dir);
+            return .init(hit.p, scatter_dir);
         }
     },
     metal: struct {
@@ -32,10 +30,9 @@ pub const Material = union(enum) {
             };
         }
 
-        fn scatter(self: @This(), ray_in: Ray, rec: HitRecord) ?Ray {
-            var reflected: Vec3 = vec.reflect(ray_in.dir, rec.normal);
-            reflected = vec.unit(reflected) + vec.scale(vec.randomUnitVec(), self.fuzz);
-            return if (vec.dot(reflected, rec.normal) > 0) .init(rec.p, reflected) else null;
+        fn scatter(self: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
+            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.dir, hit.normal)) + vec.scale(vec.randomUnitVec(), self.fuzz);
+            return if (vec.dot(reflected, hit.normal) > 0) .init(hit.p, reflected) else null;
         }
     },
     dielectric: struct {
@@ -46,25 +43,25 @@ pub const Material = union(enum) {
                                // the refractive index of the enclosing media.
 
         // zig fmt: on
-        fn scatter(self: @This(), ray_in: Ray, rec: HitRecord) ?Ray {
-            const ri = if (rec.front_face)
+        fn scatter(self: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
+            const ri = if (hit.front_face)
                 1 / self.refraction_index
             else
                 self.refraction_index;
 
             const unit_direction = vec.unit(ray_in.dir);
-            const cos_theta = @min(vec.dot(-unit_direction, rec.normal), 1);
+            const cos_theta = @min(vec.dot(-unit_direction, hit.normal), 1);
             const sin_theta = @sqrt(@abs(1 - cos_theta * cos_theta));
 
             const cannot_refract = ri * sin_theta > 1;
             const reflectance = reflectanceSchlick(cos_theta, ri);
 
             const direction = if (cannot_refract or reflectance > vec.randomFloat())
-                vec.reflect(unit_direction, rec.normal) // reflect
+                vec.reflect(unit_direction, hit.normal) // reflect
             else
-                vec.refract(unit_direction, rec.normal, ri); // refract
+                vec.refract(unit_direction, hit.normal, ri); // refract
 
-            return .init(rec.p, direction);
+            return .init(hit.p, direction);
         }
 
         fn reflectanceSchlick(cosine: f64, refraction_index: f64) f64 {

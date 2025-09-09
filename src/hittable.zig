@@ -1,12 +1,12 @@
 const std = @import("std");
 const vec = @import("vec.zig");
-const Ray = @import("Ray.zig");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
-const Vec3 = vec.Vec3;
 const Point3 = vec.Point3;
-const ArrayList = std.ArrayList;
-const Allocator = std.mem.Allocator;
+const Ray = @import("Ray.zig");
+const Vec3 = vec.Vec3;
 
 pub const HitRecord = struct {
     t: f64,

@@ -76,10 +76,6 @@ pub fn cross(u: Vec3, v: Vec3) Vec3 {
     return u_yzx * v_zxy - u_zxy * v_yzx;
 }
 
-pub fn normalize(v: Vec3) Vec3 {
-    return divScalar(v, magnitude(v));
-}
-
 pub fn unit(v: Vec3) Vec3 {
     const mag = magnitude(v);
     if (mag == 0)
@@ -276,13 +272,6 @@ test "length" {
     try expect(magnitude(u) == 1);
     try expect(magnitude(v) == sqrt2);
     try expect(magnitude(w) == sqrt3);
-}
-
-test "normalize" {
-    const v: Vec3 = .{ 1, -1, -1 };
-    const v_norm = normalize(v);
-    const norm_vlen = magnitude(v_norm);
-    try expect(norm_vlen == 1);
 }
 
 test "two elements are +/- 1" {

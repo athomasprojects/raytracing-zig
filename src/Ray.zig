@@ -1,6 +1,4 @@
-const std = @import("std");
 const vec = @import("vec.zig");
-const Colour = @import("vec.zig").Colour;
 const Point3 = @import("vec.zig").Point3;
 const Vec3 = vec.Vec3;
 
