@@ -1,6 +1,7 @@
 const std = @import("std");
-const vec = @import("vec.zig");
 const hittable = @import("hittable.zig");
+const vec = @import("vec.zig");
+
 const Colour = vec.Colour;
 const HitRecord = hittable.HitRecord;
 const HittableList = hittable.HittableList;
@@ -109,54 +110,74 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
 }
 
 pub fn render(self: Self, stdout: *Writer, file_out: *Writer, world: *HittableList) !void {
-    const magic_number = "P3";
-    const max_colour = 255;
+    const gpa = std.heap.smp_allocator;
+    var out_buffer: [][3]u8 = try gpa.alloc([3]u8, self._image_height * self.image_width);
 
+    var pool: std.Thread.Pool = undefined;
+    try pool.init(.{ .allocator = gpa });
+    defer pool.deinit();
+
+    var wg: std.Thread.WaitGroup = .{};
+
+    const max_colour = 255;
     try file_out.print(
-        "{s}\n{d} {d}\n{d}\n",
+        "P6\n{d} {d}\n{d}\n",
         .{
-            magic_number,
             self.image_width,
             self._image_height,
             max_colour,
         },
     );
 
-    for (0..self._image_height) |j| {
-        // Progress indicator.
-        try stdout.print("Scanlines remaining: {d}\r", .{self._image_height - j});
-        try stdout.flush();
+    for (0..self._image_height) |row| {
+        // // Progress indicator.
+        // try stdout.print("Scanlines remaining: {d}\r", .{self._image_height - row});
+        // try stdout.flush();
 
-        for (0..self.image_width) |i| {
-            var pixel_colour = vec.zero;
-            for (0..self.samples_per_pixel) |_| {
-                const ray = self.getRay(@floatFromInt(i), @floatFromInt(j));
-                pixel_colour += rayColour(ray, 0, world);
-            }
-            pixel_colour *= self._pixel_samples_scale;
-
-            // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
-            const max = 255.999;
-            const r_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[0]));
-            const g_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[1]));
-            const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
-
-            // Write pixel colour components.
-            try file_out.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
-        }
+        pool.spawnWg(&wg, Self.renderRow, .{
+            self,
+            @as(f64, @floatFromInt(row)),
+            world,
+            out_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
+        });
     }
+
+    pool.waitAndWork(&wg);
+
+    try file_out.writeSliceEndian(u8, std.mem.sliceAsBytes(out_buffer), .big);
     try file_out.flush();
-    try stdout.print("\rDone.                     \n", .{});
+    try stdout.print("Done.\n", .{});
     try stdout.flush();
 }
 
+fn renderRow(self: Self, row: f64, world: *HittableList, scanline: [][3]u8) void {
+    for (0..self.image_width) |column| {
+        var pixel_colour = vec.zero;
+        for (0..self.samples_per_pixel) |_| {
+            const ray = self.getRay(@floatFromInt(column), row);
+            pixel_colour += rayColour(ray, 0, world);
+        }
+        pixel_colour *= self._pixel_samples_scale;
+
+        // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
+        const max = 255.999;
+        const r_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[0]));
+        const g_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[1]));
+        const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
+
+        // Write pixel colour components.
+        // try file_out.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
+        scanline[column] = .{ r_byte, g_byte, b_byte };
+    }
+}
+
 /// Constructs a camera ray originating from the defocus disk and directed at a randomly sampled point around the pixel location (i, j).
-fn getRay(self: Self, i: f64, j: f64) Ray {
+fn getRay(self: Self, column: f64, row: f64) Ray {
     @setFloatMode(.optimized);
     const offset: Vec3 = sampleSquare();
     const pixel_sample = self._pixel00_loc +
-        self._pixel_delta_u * vec.splat(vec.x(offset) + i) +
-        self._pixel_delta_v * vec.splat(vec.y(offset) + j);
+        self._pixel_delta_u * vec.splat(vec.x(offset) + column) +
+        self._pixel_delta_v * vec.splat(vec.y(offset) + row);
     const ray_origin = if (self.defocus_angle_deg <= 0) self._center else self.defocusDiskSample();
     return .init(ray_origin, pixel_sample - ray_origin);
 }

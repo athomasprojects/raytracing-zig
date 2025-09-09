@@ -1,5 +1,5 @@
-const hittable = @import("hittable.zig");
 const std = @import("std");
+const hittable = @import("hittable.zig");
 const vec = @import("vec.zig");
 
 const Camera = @import("Camera.zig");
@@ -9,19 +9,15 @@ const Point3 = vec.Point3;
 const Sphere = hittable.Sphere;
 const Vec3 = vec.Vec3;
 
-const world_capacity = 490;
-
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const gpa = std.heap.smp_allocator;
 
     const ppm_dir = "images/ppm/";
-    const ppm_fname = "image24.ppm";
+    const ppm_fname = "final_render_multi_threaded_p6.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
-    var world: HittableList = try .init(allocator, world_capacity);
+    var world: HittableList = try .init(gpa);
     try initWorld2(&world);
 
     // Create writer to stdout.
@@ -63,13 +59,14 @@ fn initWorld(world: *HittableList) !void {
         .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.0 / 1.5 },
     };
 
-    try world.addSlice(&.{
+    var objects = [_]Sphere{
         .init(.{ 0, -100.5, -1 }, 100, ground),
         .init(.{ 0, 0, -1.2 }, 0.5, center),
         .init(.{ -1, 0, -1 }, 0.5, left_glass),
         .init(.{ -1, 0, -1 }, 0.4, bubble),
         .init(.{ 1, 0, -1 }, 0.5, right),
-    });
+    };
+    try world.addSlice(&objects);
 }
 
 fn initWorld1(world: *HittableList) !void {
@@ -81,10 +78,12 @@ fn initWorld1(world: *HittableList) !void {
     const right: Material = .{
         .lambertian = .{ .albedo = .{ 1, 0, 0 } },
     };
-    try world.addSlice(&.{
+
+    var objects = [2]Sphere{
         .init(.{ -R, 0, -1 }, R, left),
         .init(.{ R, 0, -1 }, R, right),
-    });
+    };
+    try world.addSlice(&objects);
 }
 
 fn initWorld2(world: *HittableList) !void {

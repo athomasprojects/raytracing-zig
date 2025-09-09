@@ -1,7 +1,7 @@
 const std = @import("std");
 const vec = @import("vec.zig");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+// const ArrayList = std.ArrayList;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
@@ -30,18 +30,26 @@ pub const HitRecord = struct {
 };
 
 pub const HittableList = struct {
-    allocator: Allocator,
-    objects: ArrayList(Sphere),
+    gpa: Allocator,
+    objects: std.ArrayListUnmanaged(Sphere),
 
-    pub fn init(allocator: Allocator, capacity: usize) !HittableList {
+    pub fn init(allocator: Allocator) !HittableList {
         return .{
-            .allocator = allocator,
-            .objects = try ArrayList(Sphere).initCapacity(allocator, capacity),
+            .gpa = allocator,
+            .objects = .empty,
         };
     }
 
     pub fn deinit(self: *HittableList) void {
-        self.objects.deinit();
+        self.objects.deinit(self.gpa);
+    }
+
+    pub fn add(self: *HittableList, object: Sphere) !void {
+        try self.objects.append(self.gpa, object);
+    }
+
+    pub fn addSlice(self: *HittableList, object: []Sphere) !void {
+        try self.objects.appendSlice(self.gpa, object);
     }
 
     pub fn hitAll(self: *HittableList, ray: Ray, ray_interval: Interval) ?HitRecord {
@@ -55,14 +63,6 @@ pub const HittableList = struct {
             }
         }
         return hit;
-    }
-
-    pub fn add(self: *HittableList, object: Sphere) !void {
-        try self.objects.append(self.allocator, object);
-    }
-
-    pub fn addSlice(self: *HittableList, object: []Sphere) !void {
-        try self.objects.appendSlice(self.allocator, object);
     }
 };
 
