@@ -109,9 +109,17 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     };
 }
 
-pub fn render(self: Self, stdout: *Writer, file_out: *Writer, world: *HittableList) !void {
+pub fn render(self: Self, file_out: *Writer, world: *HittableList) !void {
+    var progress_buf: [1024]u8 = undefined;
+    const progress_node = std.Progress.start(.{
+        .draw_buffer = &progress_buf,
+        .estimated_total_items = self._image_height,
+        .root_name = "scanlines",
+    });
+    defer progress_node.end();
+
     const gpa = std.heap.smp_allocator;
-    var out_buffer: [][3]u8 = try gpa.alloc([3]u8, self._image_height * self.image_width);
+    var image_buffer: [][3]u8 = try gpa.alloc([3]u8, self._image_height * self.image_width);
 
     var pool: std.Thread.Pool = undefined;
     try pool.init(.{ .allocator = gpa });
@@ -130,27 +138,24 @@ pub fn render(self: Self, stdout: *Writer, file_out: *Writer, world: *HittableLi
     );
 
     for (0..self._image_height) |row| {
-        // // Progress indicator.
-        // try stdout.print("Scanlines remaining: {d}\r", .{self._image_height - row});
-        // try stdout.flush();
-
         pool.spawnWg(&wg, Self.renderRow, .{
             self,
             @as(f64, @floatFromInt(row)),
             world,
-            out_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
+            image_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
+            progress_node,
         });
     }
 
     pool.waitAndWork(&wg);
 
-    try file_out.writeSliceEndian(u8, std.mem.sliceAsBytes(out_buffer), .big);
+    try file_out.writeSliceEndian(u8, std.mem.sliceAsBytes(image_buffer), .big);
     try file_out.flush();
-    try stdout.print("Done.\n", .{});
-    try stdout.flush();
 }
 
-fn renderRow(self: Self, row: f64, world: *HittableList, scanline: [][3]u8) void {
+fn renderRow(self: Self, row: f64, world: *HittableList, scanline: [][3]u8, progress_node: std.Progress.Node) void {
+    defer progress_node.completeOne();
+
     for (0..self.image_width) |column| {
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
@@ -165,8 +170,7 @@ fn renderRow(self: Self, row: f64, world: *HittableList, scanline: [][3]u8) void
         const g_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[1]));
         const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
 
-        // Write pixel colour components.
-        // try file_out.print("{d} {d} {d}\n", .{ r_byte, g_byte, b_byte });
+        // Write pixel colour components to scanline buffer.
         scanline[column] = .{ r_byte, g_byte, b_byte };
     }
 }

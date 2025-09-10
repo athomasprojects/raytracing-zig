@@ -21,9 +21,9 @@ pub fn main() !void {
     try initWorld2(&world);
 
     // Create writer to stdout.
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
+    // var stdout_buffer: [8]u8 = undefined;
+    // var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    // const stdout = &stdout_writer.interface;
 
     // Create or open ppm file.
     const file = try std.fs.cwd().createFile(path, .{ .read = true });
@@ -35,7 +35,7 @@ pub fn main() !void {
     const file_out = &file_writer.interface;
 
     const cam: Camera = .default;
-    try cam.render(stdout, file_out, &world);
+    try cam.render(file_out, &world);
 }
 
 fn initWorld(world: *HittableList) !void {
