@@ -12,8 +12,8 @@ const Vec3 = vec.Vec3;
 pub fn main() !void {
     const gpa = std.heap.smp_allocator;
 
-    const ppm_dir = "images/ppm/";
-    const ppm_fname = "final_render_multi_threaded_p6.ppm";
+    const ppm_dir = "images/the-next-week/";
+    const ppm_fname = "img1.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World
@@ -105,26 +105,37 @@ fn initWorld2(world: *HittableList) !void {
             };
 
             const p: Vec3 = center - Point3{ 4, 0.2, 0 };
+            var material: Material = undefined;
             if (vec.magnitude(p) > 0.9) {
-                const material: Material = if (choose_mat < 0.8)
+                if (choose_mat < 0.8) {
                     // Diffuse
-                    .{
+                    material = .{
                         .lambertian = .{ .albedo = vec.randomVec() * vec.randomVec() },
-                    }
-                else if (choose_mat < 0.95)
+                    };
+                    try world.add(
+                        .initMoving(
+                            center,
+                            center + Vec3{ 0, vec.randomFloatRange(0, 0.5), 0 },
+                            0.2,
+                            material,
+                        ),
+                    );
+                } else if (choose_mat < 0.95) {
                     // Metal
-                    .{
+                    material = .{
                         .metal = .{
-                            .albedo = vec.randomVecRange(0.5, 1),
+                            .albedo = vec.randomVecInRange(0.5, 1),
                             .fuzz = vec.randomFloatRange(0, 0.5),
                         },
-                    }
-                else
+                    };
+                    try world.add(.init(center, 0.2, material));
+                } else {
                     // Glass
-                    .{
+                    material = .{
                         .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
                     };
-                try world.add(.init(center, 0.2, material));
+                    try world.add(.init(center, 0.2, material));
+                }
             }
         }
     }

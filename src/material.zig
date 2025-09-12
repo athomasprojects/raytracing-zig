@@ -10,13 +10,13 @@ pub const Material = union(enum) {
     lambertian: struct {
         albedo: Colour,
 
-        fn scatter(_: @This(), _: Ray, hit: HitRecord) ?Ray {
+        fn scatter(_: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
             var scatter_dir: Vec3 = hit.normal + vec.randomUnitVec();
             // Catch degenerate scatter direction.
             if (vec.nearZero(scatter_dir))
                 scatter_dir = hit.normal;
 
-            return .init(hit.p, scatter_dir);
+            return .initMoving(hit.p, scatter_dir, ray_in.time);
         }
     },
     metal: struct {
@@ -31,8 +31,8 @@ pub const Material = union(enum) {
         }
 
         fn scatter(self: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
-            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.dir, hit.normal)) + vec.scale(vec.randomUnitVec(), self.fuzz);
-            return if (vec.dot(reflected, hit.normal) > 0) .init(hit.p, reflected) else null;
+            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.direction, hit.normal)) + vec.scale(vec.randomUnitVec(), self.fuzz);
+            return if (vec.dot(reflected, hit.normal) > 0) .initMoving(hit.p, reflected, ray_in.time) else null;
         }
     },
     dielectric: struct {
@@ -49,7 +49,7 @@ pub const Material = union(enum) {
             else
                 self.refraction_index;
 
-            const unit_direction = vec.unit(ray_in.dir);
+            const unit_direction = vec.unit(ray_in.direction);
             const cos_theta = @min(vec.dot(-unit_direction, hit.normal), 1);
             const sin_theta = @sqrt(@abs(1 - cos_theta * cos_theta));
 
@@ -61,7 +61,7 @@ pub const Material = union(enum) {
             else
                 vec.refract(unit_direction, hit.normal, ri); // refract
 
-            return .init(hit.p, direction);
+            return .initMoving(hit.p, direction, ray_in.time);
         }
 
         fn reflectanceSchlick(cosine: f64, refraction_index: f64) f64 {
@@ -71,9 +71,9 @@ pub const Material = union(enum) {
         }
     },
 
-    pub fn scatter(self: Material, ray_in: Ray, rec: HitRecord) ?Ray {
+    pub fn scatter(self: Material, ray_in: Ray, hit: HitRecord) ?Ray {
         return switch (self) {
-            inline else => |m| m.scatter(ray_in, rec),
+            inline else => |m| m.scatter(ray_in, hit),
         };
     }
 };

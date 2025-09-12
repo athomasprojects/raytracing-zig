@@ -133,7 +133,7 @@ pub fn randomVec() Vec3 {
 }
 
 /// Returns random vector whose elements are all in [min, max).
-pub fn randomVecRange(min: f64, max: f64) Vec3 {
+pub fn randomVecInRange(min: f64, max: f64) Vec3 {
     return .{
         randomFloatRange(min, max),
         randomFloatRange(min, max),
@@ -143,7 +143,7 @@ pub fn randomVecRange(min: f64, max: f64) Vec3 {
 
 pub fn randomUnitVec() Vec3 {
     while (true) {
-        const v = randomVecRange(-1, 1);
+        const v = randomVecInRange(-1, 1);
         const mag_sq = magnitude2(v);
         if (std.math.floatEpsAt(f64, 0) < mag_sq and mag_sq <= 1) {
             return divScalar(v, sqrt(mag_sq));
@@ -316,7 +316,7 @@ test "random vec with all elements [0,1)" {
 test "random vec with all element in [min,max)" {
     const min: f64 = -100.5;
     const max: f64 = 426.8;
-    const v = randomVecRange(min, max);
+    const v = randomVecInRange(min, max);
     try expect(@TypeOf(v) == Vec3);
     try expect(@reduce(.And, v >= splat(min)));
     try expect(@reduce(.And, v < splat(max)));

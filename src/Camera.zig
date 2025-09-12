@@ -33,15 +33,14 @@ _v: Vec3, // Camera frame basis vector.
 _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
 _defocus_disk_u: Vec3, // Defocus disk horizontal radius.
 _defocus_disk_v: Vec3, // Defocus disk vertical radius.
+const Self = @This();
 
 const max_recursion_depth = 50;
 
-const Self = @This();
-
 pub const default: Self = .init(
     16.0 / 9.0,
-    1200,
-    50,
+    400,
+    100,
     20,
     Point3{ 13, 2, 3 },
     vec.zero,
@@ -175,7 +174,9 @@ fn renderRow(self: Self, row: f64, world: *HittableList, scanline: [][3]u8, prog
     }
 }
 
-/// Constructs a camera ray originating from the defocus disk and directed at a randomly sampled point around the pixel location (i, j).
+/// Constructs a camera ray originating from the defocus disk and directed at a
+/// randomly sampled point around the pixel location (i, j), where i is the
+/// pixel `column` position and j is the pixel `row` position.
 fn getRay(self: Self, column: f64, row: f64) Ray {
     @setFloatMode(.optimized);
     const offset: Vec3 = sampleSquare();
@@ -183,7 +184,8 @@ fn getRay(self: Self, column: f64, row: f64) Ray {
         self._pixel_delta_u * vec.splat(vec.x(offset) + column) +
         self._pixel_delta_v * vec.splat(vec.y(offset) + row);
     const ray_origin = if (self.defocus_angle_deg <= 0) self._center else self.defocusDiskSample();
-    return .init(ray_origin, pixel_sample - ray_origin);
+    const ray_time = vec.randomFloat();
+    return .initMoving(ray_origin, pixel_sample - ray_origin, ray_time);
 }
 
 /// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
@@ -219,7 +221,7 @@ fn rayColour(r: Ray, depth: comptime_int, world: *HittableList) Colour {
     // If the ray does not hit any of the world objects, we compute the ray colour
     // as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
     // This renders the sky.
-    const unit_direction: Vec3 = vec.unit(r.dir);
+    const unit_direction: Vec3 = vec.unit(r.direction);
     const a: f64 = 0.5 * (vec.y(unit_direction) + 1.0);
     return vec.scale(Colour{ 1, 1, 1 }, 1 - a) + vec.scale(Colour{ 0.5, 0.7, 1 }, a);
 }
