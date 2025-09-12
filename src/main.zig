@@ -13,7 +13,7 @@ pub fn main() !void {
     const gpa = std.heap.smp_allocator;
 
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img1.ppm";
+    const ppm_fname = "img2.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // World

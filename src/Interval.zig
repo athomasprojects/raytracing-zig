@@ -26,3 +26,11 @@ pub fn surrounds(self: Self, x: f64) bool {
 pub fn clamp(self: Self, x: f64) f64 {
     return std.math.clamp(x, self.min, self.max);
 }
+
+pub fn expand(self: Self, delta: f64) Self {
+    const padding = 0.5 * delta;
+    return .{
+        .min = self.min - padding,
+        .max = self.max + padding,
+    };
+}
