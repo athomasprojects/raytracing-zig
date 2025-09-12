@@ -1,7 +1,7 @@
 const std = @import("std");
 const vec = @import("vec.zig");
 const Allocator = std.mem.Allocator;
-// const ArrayList = std.ArrayList;
+const Aabb = @import("AxisAlignedBoundingBox.zig");
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
@@ -14,8 +14,9 @@ pub const HitRecord = struct {
     normal: Vec3,
     front_face: bool,
     mat: Material,
+    bbox: Aabb,
 
-    pub fn init(ray: Ray, t: f64, center: Vec3, radius: f64, mat: Material) HitRecord {
+    pub fn init(ray: Ray, t: f64, center: Vec3, radius: f64, mat: Material, bbox: Aabb) HitRecord {
         const p = ray.at(t);
         const outward_normal = vec.divScalar(p - center, radius); // Assumed to have unit length.
         const front_face = vec.dot(ray.direction, outward_normal) < 0;
@@ -25,6 +26,7 @@ pub const HitRecord = struct {
             .normal = if (front_face) outward_normal else -outward_normal,
             .front_face = front_face,
             .mat = mat,
+            .bbox = bbox,
         };
     }
 };
@@ -44,8 +46,8 @@ pub const HittableList = struct {
         self.objects.deinit(self.gpa);
     }
 
-    pub fn add(self: *HittableList, object: Sphere) !void {
-        try self.objects.append(self.gpa, object);
+    pub fn add(self: *HittableList, object: Sphere, bbox: Aabb) !void {
+        try self.objects.append(self.gpa, object, .fromBoxes(bbox, object.bbox));
     }
 
     pub fn addSlice(self: *HittableList, object: []Sphere) !void {
@@ -64,26 +66,41 @@ pub const HittableList = struct {
         }
         return hit;
     }
+
+    // pub fn boundingBox(self: *HittableList) Aabb {
+    // }
 };
 
 pub const Sphere = struct {
     center: Ray,
     radius: f64,
     mat: Material,
+    bbox: Aabb,
 
     pub fn init(center: Point3, radius: f64, mat: Material) Sphere {
+        const r: Vec3 = vec.splat(radius);
         return .{
             .center = .init(center, vec.zero),
             .radius = @max(0, radius),
             .mat = mat,
+            .bbox = .fromPoints(center - r, center + r),
         };
     }
 
     pub fn initMoving(center_from: Point3, center_to: Point3, radius: f64, mat: Material) Sphere {
+        const center: Ray = .init(center_from, center_to - center_from);
+        const r: Vec3 = vec.splat(radius);
+
+        const center_at_0 = center.at(0);
+        const center_at_1 = center.at(1);
         return .{
-            .center = .init(center_from, center_to - center_from),
+            .center = center,
             .radius = @max(0, radius),
             .mat = mat,
+            .bbox = .fromBoxes(
+                .fromPoints(center_at_0 - r, center_at_0 + r),
+                .fromPoints(center_at_1 - r, center_at_1 + r),
+            ),
         };
     }
 
@@ -111,5 +128,9 @@ pub const Sphere = struct {
             }
         }
         return .init(ray, root, current_center, self.radius, self.mat);
+    }
+
+    pub fn boundingBox(self: Sphere) Aabb {
+        return self.bbox;
     }
 };
