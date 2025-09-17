@@ -34,6 +34,7 @@
         pkgs = import nixpkgs {inherit overlays system;};
       in rec {
         devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [poop];
           nativeBuildInputs = with pkgs; [
             zigpkgs."0.15.1"
             # zigpkgs.master

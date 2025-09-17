@@ -33,27 +33,8 @@ pub fn main() !void {
 
     const object_capacity = 490;
     var objects: HittableList = try .initCapacity(gpa, object_capacity);
-
-    // std.debug.print("indices.len: {d}\n", .{objects.indices.len});
-
     try initObjects(&objects);
 
-    // var indices = try gpa.alloc(u32, objects.objects.items.len);
-    // for (0..indices.len) |idx| {
-    //     indices[idx] = @intCast(idx);
-    // }
-    // objects.indices = indices;
-
-    // std.debug.print("==== Index:\n", .{});
-    // for (objects.indices) |idx| {
-    //     std.debug.print("{any} {d}\n", .{ @TypeOf(idx), idx });
-    //     // std.debug.print("sphere: {any}\n", .{objects.objects.items[idx]});
-    //     // std.debug.print("*sphere: {*}\n\n", .{objects.ptrs.items[idx]});
-    // }
-    // std.debug.print("====\nindices.len: {d}\n\n", .{objects.indices.len});
-
-    // var world: Bvh = try .initCapacity(gpa, 2 * object_capacity - 1);
-    // try world.build(objects.ptrs.items);
     var world: Bvh = .init(gpa);
     try world.build(objects.objects.items);
 

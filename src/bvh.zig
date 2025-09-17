@@ -50,16 +50,32 @@ pub const Bvh = struct {
             return;
         }
 
-        try self.nodes.ensureTotalCapacity(self.gpa, 2 * objects.len);
+        // We can never have more than 2N - 1 nodes, where N is the number of objects primitives.
+        try self.nodes.ensureTotalCapacity(self.gpa, 2 * objects.len - 1);
+
         var indices = try self.gpa.alloc(u32, objects.len);
         defer self.gpa.free(indices);
 
         for (0..indices.len) |idx| indices[idx] = @intCast(idx);
 
-        self.root = try self.buildRange(objects, indices, 0, objects.len);
+        // Debug: Visualize tree traversal during formation.
+        // std.debug.print("depth, (start, end), nodes:\n", .{});
+        // std.debug.print("===========================\n", .{});
+
+        self.root = try self.buildRange(objects, indices, 0, objects.len, 0);
+
+        // Debug:
+        // var leaves: u32 = 0;
+        // for (self.nodes.items) |node| {
+        //     if (node.data) |_| {
+        //         leaves += 1;
+        //     }
+        // }
+        // std.debug.print("\nTotal nodes: {d}\n", .{self.nodes.items.len});
+        // std.debug.print("Total leaves: {d}\n", .{leaves});
     }
 
-    pub fn buildRange(self: *Bvh, objects: []const Sphere, indices: []u32, start: usize, end: usize) !*Link {
+    pub fn buildRange(self: *Bvh, objects: []const Sphere, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
         const span = end - start;
 
         if (span == 1) {
@@ -72,6 +88,10 @@ pub const Bvh = struct {
                     .link = .empty,
                 },
             );
+
+            // Debug:
+            // std.debug.print("leaf index {d}! ==> {d}, ({d}, {d}), {d}\n", .{ indices[start], depth, start, end, self.nodes.items.len });
+
             return &self.nodes.items[self.nodes.items.len - 1].link;
         }
 
@@ -98,15 +118,21 @@ pub const Bvh = struct {
             }.lessThan,
         );
 
+        // Debug:
+        // std.debug.print("{d}, ({d}, {d}), {d}\n", .{ depth, start, end, self.nodes.items.len });
         const mid = start + span / 2;
-        const left_link = try self.buildRange(objects, indices, start, mid);
-        const right_link = try self.buildRange(objects, indices, mid, end);
+        const left_link = try self.buildRange(objects, indices, start, mid, depth + 1);
+        const right_link = try self.buildRange(objects, indices, mid, end, depth + 1);
 
         // Append interal node.
         try self.nodes.append(self.gpa, .{
             .bbox = node_bbox,
             .link = .{ .left = left_link, .right = right_link },
         });
+
+        // Debug:
+        // std.debug.print("internal node => {d}, ({d}, {d}), {d}\n", .{ depth, start, end, self.nodes.items.len });
+
         return &self.nodes.items[self.nodes.items.len - 1].link;
     }
 
