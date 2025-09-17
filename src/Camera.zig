@@ -9,6 +9,7 @@ const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
 const Ray = @import("Ray.zig");
+const Sphere = hittable.Sphere;
 const Vec3 = vec.Vec3;
 const Writer = std.Io.Writer;
 
@@ -108,7 +109,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     };
 }
 
-pub fn render(self: Self, file_out: *Writer, world: *Bvh) !void {
+pub fn render(self: Self, file_out: *Writer, world: *Bvh, objects: []const Sphere) !void {
     var progress_buf: [1024]u8 = undefined;
     const progress_node = std.Progress.start(.{
         .draw_buffer = &progress_buf,
@@ -141,6 +142,7 @@ pub fn render(self: Self, file_out: *Writer, world: *Bvh) !void {
             self,
             @as(f64, @floatFromInt(row)),
             world,
+            objects,
             image_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
             progress_node,
         });
@@ -152,14 +154,14 @@ pub fn render(self: Self, file_out: *Writer, world: *Bvh) !void {
     try file_out.flush();
 }
 
-fn renderRow(self: Self, row: f64, world: *Bvh, scanline: [][3]u8, progress_node: std.Progress.Node) void {
+fn renderRow(self: Self, row: f64, world: *Bvh, objects: []const Sphere, scanline: [][3]u8, progress_node: std.Progress.Node) void {
     defer progress_node.completeOne();
 
     for (0..self.image_width) |column| {
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.getRay(@floatFromInt(column), row);
-            pixel_colour += rayColour(ray, 0, world);
+            pixel_colour += rayColour(ray, 0, world, objects);
         }
         pixel_colour *= self._pixel_samples_scale;
 
@@ -205,17 +207,17 @@ fn defocusDiskSample(self: Self) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(r: Ray, depth: comptime_int, world: *Bvh) Colour {
+fn rayColour(r: Ray, depth: comptime_int, world: *Bvh, objects: []const Sphere) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
-    if (world.hit(r, interval)) |hit| {
+    if (world.hit(objects, r, interval)) |hit| {
         const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
         const attenuation: Colour = switch (hit.mat) {
             inline else => |m| m.albedo,
         };
-        return attenuation * rayColour(scattered, depth + 1, world);
+        return attenuation * rayColour(scattered, depth + 1, world, objects);
     }
 
     // If the ray does not hit any of the world objects, we compute the ray colour

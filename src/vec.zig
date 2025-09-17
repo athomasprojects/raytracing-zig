@@ -124,7 +124,7 @@ pub inline fn randomFloat() f64 {
 }
 
 /// Returns a random real in [min,max).
-pub fn randomFloatRange(min: f64, max: f64) f64 {
+pub fn randomFloatInRange(min: f64, max: f64) f64 {
     return min + (max - min) * randomFloat();
 }
 
@@ -140,9 +140,9 @@ pub fn randomVec() Vec3 {
 /// Returns random vector whose elements are all in [min, max).
 pub fn randomVecInRange(min: f64, max: f64) Vec3 {
     return .{
-        randomFloatRange(min, max),
-        randomFloatRange(min, max),
-        randomFloatRange(min, max),
+        randomFloatInRange(min, max),
+        randomFloatInRange(min, max),
+        randomFloatInRange(min, max),
     };
 }
 
@@ -160,8 +160,8 @@ pub fn randomUnitVec() Vec3 {
 pub fn randomVecInUnitDisk() Vec3 {
     while (true) {
         const v: Vec3 = .{
-            randomFloatRange(-1, 1),
-            randomFloatRange(-1, 1),
+            randomFloatInRange(-1, 1),
+            randomFloatInRange(-1, 1),
             0,
         };
 
@@ -306,7 +306,7 @@ test "random float in [0,1)" {
 test "random float in [min,max)" {
     const min: f64 = -100.5;
     const max: f64 = 426.8;
-    const val = randomFloatRange(min, max);
+    const val = randomFloatInRange(min, max);
     try expect(@TypeOf(val) == f64);
     try expect(val >= min and val < max);
 }

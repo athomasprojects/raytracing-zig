@@ -32,7 +32,8 @@ pub const HitRecord = struct {
 pub const HittableList = struct {
     gpa: Allocator,
     objects: std.ArrayListUnmanaged(Sphere) = .empty,
-    object_ptrs: std.ArrayListUnmanaged(*Sphere) = .empty,
+    ptrs: std.ArrayListUnmanaged(*Sphere) = .empty,
+    // indices: []u32 = &.{},
     root_bbox: Aabb = .empty,
 
     pub fn init(gpa: Allocator) !HittableList {
@@ -45,18 +46,21 @@ pub const HittableList = struct {
         return .{
             .gpa = gpa,
             .objects = try .initCapacity(gpa, size),
-            .object_ptrs = try .initCapacity(gpa, size),
+            .ptrs = try .initCapacity(gpa, size),
+            // .indices = try gpa.alloc(u32, size),
         };
     }
 
     pub fn deinit(self: *HittableList) void {
         self.objects.deinit(self.gpa);
-        self.object_ptrs.deinit(self.gpa);
+        self.ptrs.deinit(self.gpa);
+        // self.indices.deinit(self.gpa);
     }
 
     pub fn add(self: *HittableList, object: Sphere) !void {
         try self.objects.append(self.gpa, object);
-        try self.object_ptrs.append(self.gpa, &self.objects.items[self.objects.items.len - 1]);
+        try self.ptrs.append(self.gpa, &self.objects.items[self.objects.items.len - 1]);
+        // try self.indices.append(self.gpa, @intCast(self.objects.items.len - 1));
         self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
     }
 
@@ -66,7 +70,15 @@ pub const HittableList = struct {
 
         for (objects, 0..objects.len) |object, offset| {
             self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
-            try self.object_ptrs.append(self.gpa, &self.objects.items[start + offset]);
+            try self.ptrs.append(self.gpa, &self.objects.items[start + offset]);
+            // try self.indices.append(self.gpa, @intCast(start + offset));
+        }
+    }
+
+    pub fn addIndices(self: *HittableList) !void {
+        self.indices = try self.gpa.alloc(u32, self.objects.items.len);
+        for (0..self.objects.items.len) |idx| {
+            self.indices[idx] = @intCast(idx);
         }
     }
 
@@ -119,7 +131,7 @@ pub const Sphere = struct {
 
     pub fn hit(self: Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
         const current_center: Point3 = self.center.at(ray.time);
-        const oc: Vec3 = current_center - ray.origin; // vector from the ray origin to the center of the sphere.
+        const oc: Vec3 = current_center - ray.origin; // Vector from the ray origin to the center of the sphere.
         const a: f64 = vec.magnitude2(ray.direction);
         const h: f64 = vec.dot(ray.direction, oc);
         const c: f64 = vec.magnitude2(oc) - self.radius * self.radius;

@@ -14,7 +14,7 @@ pub fn main() !void {
     const gpa = std.heap.smp_allocator;
 
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img2.ppm";
+    const ppm_fname = "img3.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create writer to stdout.
@@ -32,14 +32,33 @@ pub fn main() !void {
     const file_out = &file_writer.interface;
 
     const object_capacity = 490;
-    var list: HittableList = try .initCapacity(gpa, 490);
-    try initObjects(&list);
+    var objects: HittableList = try .initCapacity(gpa, object_capacity);
 
-    var world: Bvh = try .initCapacity(gpa, 2 * object_capacity - 1);
-    try world.build(list.object_ptrs.items);
+    // std.debug.print("indices.len: {d}\n", .{objects.indices.len});
+
+    try initObjects(&objects);
+
+    // var indices = try gpa.alloc(u32, objects.objects.items.len);
+    // for (0..indices.len) |idx| {
+    //     indices[idx] = @intCast(idx);
+    // }
+    // objects.indices = indices;
+
+    // std.debug.print("==== Index:\n", .{});
+    // for (objects.indices) |idx| {
+    //     std.debug.print("{any} {d}\n", .{ @TypeOf(idx), idx });
+    //     // std.debug.print("sphere: {any}\n", .{objects.objects.items[idx]});
+    //     // std.debug.print("*sphere: {*}\n\n", .{objects.ptrs.items[idx]});
+    // }
+    // std.debug.print("====\nindices.len: {d}\n\n", .{objects.indices.len});
+
+    // var world: Bvh = try .initCapacity(gpa, 2 * object_capacity - 1);
+    // try world.build(objects.ptrs.items);
+    var world: Bvh = .init(gpa);
+    try world.build(objects.objects.items);
 
     const cam: Camera = .default;
-    try cam.render(file_out, &world);
+    try cam.render(file_out, &world, objects.objects.items);
 }
 
 fn initObjects2(world: *HittableList) !void {
@@ -119,7 +138,7 @@ fn initObjects(world: *HittableList) !void {
                     try world.add(
                         .initMoving(
                             center,
-                            center + Vec3{ 0, vec.randomFloatRange(0, 0.5), 0 },
+                            center + Vec3{ 0, vec.randomFloatInRange(0, 0.5), 0 },
                             0.2,
                             material,
                         ),
@@ -129,7 +148,7 @@ fn initObjects(world: *HittableList) !void {
                     material = .{
                         .metal = .{
                             .albedo = vec.randomVecInRange(0.5, 1),
-                            .fuzz = vec.randomFloatRange(0, 0.5),
+                            .fuzz = vec.randomFloatInRange(0, 0.5),
                         },
                     };
                     try world.add(.init(center, 0.2, material));
