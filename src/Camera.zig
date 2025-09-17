@@ -4,7 +4,7 @@ const vec = @import("vec.zig");
 
 const Colour = vec.Colour;
 const HitRecord = hittable.HitRecord;
-const HittableList = hittable.HittableList;
+const Bvh = @import("bvh.zig").Bvh;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
@@ -108,7 +108,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     };
 }
 
-pub fn render(self: Self, file_out: *Writer, world: *HittableList) !void {
+pub fn render(self: Self, file_out: *Writer, world: *Bvh) !void {
     var progress_buf: [1024]u8 = undefined;
     const progress_node = std.Progress.start(.{
         .draw_buffer = &progress_buf,
@@ -152,7 +152,7 @@ pub fn render(self: Self, file_out: *Writer, world: *HittableList) !void {
     try file_out.flush();
 }
 
-fn renderRow(self: Self, row: f64, world: *HittableList, scanline: [][3]u8, progress_node: std.Progress.Node) void {
+fn renderRow(self: Self, row: f64, world: *Bvh, scanline: [][3]u8, progress_node: std.Progress.Node) void {
     defer progress_node.completeOne();
 
     for (0..self.image_width) |column| {
@@ -205,12 +205,12 @@ fn defocusDiskSample(self: Self) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(r: Ray, depth: comptime_int, world: *HittableList) Colour {
+fn rayColour(r: Ray, depth: comptime_int, world: *Bvh) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
-    if (world.hitAll(r, interval)) |hit| {
+    if (world.hit(r, interval)) |hit| {
         const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
         const attenuation: Colour = switch (hit.mat) {
             inline else => |m| m.albedo,

@@ -15,21 +15,39 @@ pub const empty: Aabb = .{
     .z = .empty,
 };
 
-/// Treats the two points `a` and `b` as extrema for the bounding box, so we don't
-/// require a particular minimum/maximum coordinate order.
+/// Returns a bounding box created from the points `a` and `b`.
+///
+/// Treats `a` and `b` as extrema for the bounding box, so we don't require a
+/// particular minimum/maximum coordinate order.
 pub fn fromPoints(a: Point3, b: Point3) Aabb {
-    return .{
-        .x = if (a[0] <= b[0]) .{ .min = a[0], .max = b[0] } else .{ .min = b[0], .max = a[0] },
-        .y = if (a[1] <= b[1]) .{ .min = a[1], .max = b[1] } else .{ .min = b[1], .max = a[1] },
-        .z = if (a[2] <= b[2]) .{ .min = a[2], .max = b[2] } else .{ .min = b[2], .max = a[2] },
-    };
+    var bbox: Aabb = undefined;
+    const fields = @typeInfo(Aabb).@"struct".fields;
+    inline for (fields, 0..fields.len) |field, idx| {
+        // With `inline for` the function gets generated as
+        // a series of `if` statements relying on the optimizer
+        // to convert it to a switch.
+        // if (field.value == @intFromEnum(any)) {
+        //     return @field(any, field.name).len;
+        // }
+        switch (idx) {
+            0...fields.len - 1 => @field(bbox, field.name) = if (a[idx] <= b[idx]) .{ .min = a[idx], .max = b[idx] } else .{ .min = b[idx], .max = a[idx] },
+            else => unreachable, // return error.IndexOutOfBounds,
+        }
+    }
+    return bbox;
+
+    // return .{
+    //     .x = if (a[0] <= b[0]) .{ .min = a[0], .max = b[0] } else .{ .min = b[0], .max = a[0] },
+    //     .y = if (a[1] <= b[1]) .{ .min = a[1], .max = b[1] } else .{ .min = b[1], .max = a[1] },
+    //     .z = if (a[2] <= b[2]) .{ .min = a[2], .max = b[2] } else .{ .min = b[2], .max = a[2] },
+    // };
 }
 
-pub fn fromBoxes(box0: Aabb, box1: Aabb) Aabb {
+pub fn fromEnclosedBoxes(box0: Aabb, box1: Aabb) Aabb {
     return .{
-        .x = .fromIntervals(box0.x, box1.x),
-        .y = .fromIntervals(box0.y, box1.y),
-        .z = .fromIntervals(box0.z, box1.z),
+        .x = .expandToInclude(box0.x, box1.x),
+        .y = .expandToInclude(box0.y, box1.y),
+        .z = .expandToInclude(box0.z, box1.z),
     };
 }
 
@@ -39,26 +57,39 @@ pub fn axisInterval(self: Aabb, n: usize) Interval {
     return self.x;
 }
 
-pub fn hit(self: Aabb, ray: Ray, ray_interval: Interval) ?Interval {
-    var intersection_interval: ?Interval = ray_interval;
+pub fn longestAxis(self: Aabb) usize {
+    const dx = self.x.size();
+    const dy = self.y.size();
+    const dz = self.z.size();
 
-    for (0..3) |axis| {
-        const ax: Interval = self.axisInterval(axis);
-        const adinv: f64 = 1.0 / ray.direction[axis];
+    if (dx > dy) return if (dx > dz) 0 else 2;
+    return if (dy > dz) 1 else 2;
+}
 
-        const t0 = (ax.min - ray.origin[axis]) * adinv;
-        const t1 = (ax.max - ray.origin[axis]) * adinv;
+pub fn hit(self: Aabb, ray: Ray, ray_interval: Interval) bool {
+    var intersection_interval: Interval = ray_interval;
+
+    const fields = @typeInfo(Aabb).@"struct".fields;
+    for (0..fields.len) |axis_idx| {
+        const ax: Interval = self.axisInterval(axis_idx);
+        // const ax: Interval = switch (axis_idx) {
+        //     0...fields.len - 1 => @field(self, fields[axis_idx].name),
+        // };
+        const adinv: f64 = 1.0 / ray.direction[axis_idx];
+
+        const t0 = (ax.min - ray.origin[axis_idx]) * adinv;
+        const t1 = (ax.max - ray.origin[axis_idx]) * adinv;
 
         if (t0 < t1) {
-            if (t0 > ray_interval.min) intersection_interval.?.min = t0;
-            if (t1 < ray_interval.max) intersection_interval.?.max = t1;
+            if (t0 > ray_interval.min) intersection_interval.min = t0;
+            if (t1 < ray_interval.max) intersection_interval.max = t1;
         } else {
-            if (t1 > ray_interval.min) intersection_interval.?.min = t1;
-            if (t0 < ray_interval.max) intersection_interval.?.max = t0;
+            if (t1 > ray_interval.min) intersection_interval.min = t1;
+            if (t0 < ray_interval.max) intersection_interval.max = t0;
         }
 
-        if (intersection_interval.?.max <= intersection_interval.?.min) return null;
+        if (intersection_interval.max <= intersection_interval.min) return false;
     }
 
-    return intersection_interval;
+    return true;
 }

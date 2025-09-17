@@ -113,6 +113,11 @@ pub fn isUnit(v: Vec3) bool {
     return std.math.approxEqAbs(f64, magnitude2(v), 1, std.math.floatEpsAt(f64, 1));
 }
 
+/// Returns random integer in [`min`, `max`].
+pub inline fn randomInt(min: i64, max: i64) i64 {
+    return std.crypto.random.intRangeAtMost(i64, min, max);
+}
+
 /// Returns random real in [0, 1).
 pub inline fn randomFloat() f64 {
     return std.crypto.random.float(f64);

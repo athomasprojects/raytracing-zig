@@ -2,6 +2,7 @@ const std = @import("std");
 const hittable = @import("hittable.zig");
 const vec = @import("vec.zig");
 
+const Bvh = @import("bvh.zig").Bvh;
 const Camera = @import("Camera.zig");
 const HittableList = hittable.HittableList;
 const Material = @import("material.zig").Material;
@@ -15,10 +16,6 @@ pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
     const ppm_fname = "img2.ppm";
     const path = ppm_dir ++ ppm_fname;
-
-    // World
-    var world: HittableList = try .init(gpa);
-    try initWorld2(&world);
 
     // Create writer to stdout.
     // var stdout_buffer: [8]u8 = undefined;
@@ -34,11 +31,18 @@ pub fn main() !void {
     var file_writer = file.writer(&file_buffer);
     const file_out = &file_writer.interface;
 
+    const object_capacity = 490;
+    var list: HittableList = try .initCapacity(gpa, 490);
+    try initObjects(&list);
+
+    var world: Bvh = try .initCapacity(gpa, 2 * object_capacity - 1);
+    try world.build(list.object_ptrs.items);
+
     const cam: Camera = .default;
     try cam.render(file_out, &world);
 }
 
-fn initWorld(world: *HittableList) !void {
+fn initObjects2(world: *HittableList) !void {
     const ground: Material = .{
         .lambertian = .{ .albedo = .{ 0.8, 0.8, 0 } },
     };
@@ -69,7 +73,7 @@ fn initWorld(world: *HittableList) !void {
     try world.addSlice(&objects);
 }
 
-fn initWorld1(world: *HittableList) !void {
+fn initObjects1(world: *HittableList) !void {
     const R = @cos(std.math.pi * 0.25);
 
     const left: Material = .{
@@ -86,7 +90,7 @@ fn initWorld1(world: *HittableList) !void {
     try world.addSlice(&objects);
 }
 
-fn initWorld2(world: *HittableList) !void {
+fn initObjects(world: *HittableList) !void {
     const ground: Material = .{
         .lambertian = .{ .albedo = .{ 0.5, 0.5, 0.5 } },
     };

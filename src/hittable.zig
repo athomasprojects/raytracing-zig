@@ -14,9 +14,8 @@ pub const HitRecord = struct {
     normal: Vec3,
     front_face: bool,
     mat: Material,
-    bbox: Aabb,
 
-    pub fn init(ray: Ray, t: f64, center: Vec3, radius: f64, mat: Material, bbox: Aabb) HitRecord {
+    pub fn init(ray: Ray, t: f64, center: Vec3, radius: f64, mat: Material) HitRecord {
         const p = ray.at(t);
         const outward_normal = vec.divScalar(p - center, radius); // Assumed to have unit length.
         const front_face = vec.dot(ray.direction, outward_normal) < 0;
@@ -26,32 +25,49 @@ pub const HitRecord = struct {
             .normal = if (front_face) outward_normal else -outward_normal,
             .front_face = front_face,
             .mat = mat,
-            .bbox = bbox,
         };
     }
 };
 
 pub const HittableList = struct {
     gpa: Allocator,
-    objects: std.ArrayListUnmanaged(Sphere),
+    objects: std.ArrayListUnmanaged(Sphere) = .empty,
+    object_ptrs: std.ArrayListUnmanaged(*Sphere) = .empty,
+    root_bbox: Aabb = .empty,
 
-    pub fn init(allocator: Allocator) !HittableList {
+    pub fn init(gpa: Allocator) !HittableList {
         return .{
-            .gpa = allocator,
-            .objects = .empty,
+            .gpa = gpa,
+        };
+    }
+
+    pub fn initCapacity(gpa: Allocator, size: usize) !HittableList {
+        return .{
+            .gpa = gpa,
+            .objects = try .initCapacity(gpa, size),
+            .object_ptrs = try .initCapacity(gpa, size),
         };
     }
 
     pub fn deinit(self: *HittableList) void {
         self.objects.deinit(self.gpa);
+        self.object_ptrs.deinit(self.gpa);
     }
 
-    pub fn add(self: *HittableList, object: Sphere, bbox: Aabb) !void {
-        try self.objects.append(self.gpa, object, .fromBoxes(bbox, object.bbox));
+    pub fn add(self: *HittableList, object: Sphere) !void {
+        try self.objects.append(self.gpa, object);
+        try self.object_ptrs.append(self.gpa, &self.objects.items[self.objects.items.len - 1]);
+        self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
     }
 
-    pub fn addSlice(self: *HittableList, object: []Sphere) !void {
-        try self.objects.appendSlice(self.gpa, object);
+    pub fn addSlice(self: *HittableList, objects: []Sphere) !void {
+        const start = self.objects.items.len;
+        try self.objects.appendSlice(self.gpa, objects);
+
+        for (objects, 0..objects.len) |object, offset| {
+            self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
+            try self.object_ptrs.append(self.gpa, &self.objects.items[start + offset]);
+        }
     }
 
     pub fn hitAll(self: *HittableList, ray: Ray, ray_interval: Interval) ?HitRecord {
@@ -66,9 +82,6 @@ pub const HittableList = struct {
         }
         return hit;
     }
-
-    // pub fn boundingBox(self: *HittableList) Aabb {
-    // }
 };
 
 pub const Sphere = struct {
@@ -97,14 +110,14 @@ pub const Sphere = struct {
             .center = center,
             .radius = @max(0, radius),
             .mat = mat,
-            .bbox = .fromBoxes(
+            .bbox = .fromEnclosedBoxes(
                 .fromPoints(center_at_0 - r, center_at_0 + r),
                 .fromPoints(center_at_1 - r, center_at_1 + r),
             ),
         };
     }
 
-    fn hit(self: Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
+    pub fn hit(self: Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
         const current_center: Point3 = self.center.at(ray.time);
         const oc: Vec3 = current_center - ray.origin; // vector from the ray origin to the center of the sphere.
         const a: f64 = vec.magnitude2(ray.direction);
@@ -128,9 +141,5 @@ pub const Sphere = struct {
             }
         }
         return .init(ray, root, current_center, self.radius, self.mat);
-    }
-
-    pub fn boundingBox(self: Sphere) Aabb {
-        return self.bbox;
     }
 };
