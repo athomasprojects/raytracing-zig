@@ -7,6 +7,7 @@ const Ray = @import("Ray.zig");
 x: Interval,
 y: Interval,
 z: Interval,
+
 const Aabb = @This();
 
 pub const empty: Aabb = .{

@@ -75,7 +75,7 @@ pub const Bvh = struct {
         // std.debug.print("Total leaves: {d}\n", .{leaves});
     }
 
-    pub fn buildRange(self: *Bvh, objects: []const Sphere, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
+    fn buildRange(self: *Bvh, objects: []const Sphere, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
         const span = end - start;
 
         if (span == 1) {
@@ -142,7 +142,7 @@ pub const Bvh = struct {
     }
 };
 
-pub fn hitNode(link: *Link, objects: []const Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
+fn hitNode(link: *Link, objects: []const Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
     const node_ptr: *Node = @fieldParentPtr("link", link);
 
     if (!node_ptr.bbox.hit(ray, ray_interval)) return null;

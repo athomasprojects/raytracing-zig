@@ -3,13 +3,13 @@ const hittable = @import("hittable.zig");
 const vec = @import("vec.zig");
 
 const Colour = vec.Colour;
-const HitRecord = hittable.HitRecord;
 const Bvh = @import("bvh.zig").Bvh;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
 const Ray = @import("Ray.zig");
 const Sphere = hittable.Sphere;
+const Texture = @import("texture.zig").Texture;
 const Vec3 = vec.Vec3;
 const Writer = std.Io.Writer;
 
@@ -34,11 +34,11 @@ _v: Vec3, // Camera frame basis vector.
 _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
 _defocus_disk_u: Vec3, // Defocus disk horizontal radius.
 _defocus_disk_v: Vec3, // Defocus disk vertical radius.
-const Self = @This();
+const Camera = @This();
 
 const max_recursion_depth = 50;
 
-pub const default: Self = .init(
+pub const default: Camera = .init(
     16.0 / 9.0,
     400,
     100,
@@ -50,7 +50,7 @@ pub const default: Self = .init(
     10,
 );
 
-pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_float, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Self {
+pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_float, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Camera {
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
@@ -109,7 +109,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     };
 }
 
-pub fn render(self: Self, file_out: *Writer, world: *Bvh, objects: []const Sphere) !void {
+pub fn render(self: Camera, file_out: *Writer, world: *Bvh, objects: []const Sphere, tex_buf: []const Texture) !void {
     var progress_buf: [1024]u8 = undefined;
     const progress_node = std.Progress.start(.{
         .draw_buffer = &progress_buf,
@@ -138,11 +138,12 @@ pub fn render(self: Self, file_out: *Writer, world: *Bvh, objects: []const Spher
     );
 
     for (0..self._image_height) |row| {
-        pool.spawnWg(&wg, Self.renderRow, .{
+        pool.spawnWg(&wg, Camera.renderRow, .{
             self,
             @as(f64, @floatFromInt(row)),
             world,
             objects,
+            tex_buf,
             image_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
             progress_node,
         });
@@ -154,14 +155,14 @@ pub fn render(self: Self, file_out: *Writer, world: *Bvh, objects: []const Spher
     try file_out.flush();
 }
 
-fn renderRow(self: Self, row: f64, world: *Bvh, objects: []const Sphere, scanline: [][3]u8, progress_node: std.Progress.Node) void {
+fn renderRow(self: Camera, row: f64, world: *Bvh, objects: []const Sphere, tex_buf: []const Texture, scanline: [][3]u8, progress_node: std.Progress.Node) void {
     defer progress_node.completeOne();
 
     for (0..self.image_width) |column| {
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.getRay(@floatFromInt(column), row);
-            pixel_colour += rayColour(ray, 0, world, objects);
+            pixel_colour += rayColour(ray, 0, world, objects, tex_buf);
         }
         pixel_colour *= self._pixel_samples_scale;
 
@@ -179,7 +180,7 @@ fn renderRow(self: Self, row: f64, world: *Bvh, objects: []const Sphere, scanlin
 /// Constructs a camera ray originating from the defocus disk and directed at a
 /// randomly sampled point around the pixel location (i, j), where i is the
 /// pixel `column` position and j is the pixel `row` position.
-fn getRay(self: Self, column: f64, row: f64) Ray {
+fn getRay(self: Camera, column: f64, row: f64) Ray {
     @setFloatMode(.optimized);
     const offset: Vec3 = sampleSquare();
     const pixel_sample = self._pixel00_loc +
@@ -200,14 +201,14 @@ fn sampleSquare() Vec3 {
 }
 
 /// Returns a random point in the camera defocus disk.
-fn defocusDiskSample(self: Self) Point3 {
+fn defocusDiskSample(self: Camera) Point3 {
     const v = vec.randomVecInUnitDisk();
     return self._center +
         vec.scale(self._defocus_disk_u, vec.x(v)) +
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(r: Ray, depth: comptime_int, world: *Bvh, objects: []const Sphere) Colour {
+fn rayColour(r: Ray, depth: comptime_int, world: *Bvh, objects: []const Sphere, tex_buf: []const Texture) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == max_recursion_depth) return vec.zero;
 
@@ -215,9 +216,11 @@ fn rayColour(r: Ray, depth: comptime_int, world: *Bvh, objects: []const Sphere) 
     if (world.hit(objects, r, interval)) |hit| {
         const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
         const attenuation: Colour = switch (hit.mat) {
-            inline else => |m| m.albedo,
+            .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
+            .metal => |m| m.albedo,
+            .dielectric => |m| m.albedo,
         };
-        return attenuation * rayColour(scattered, depth + 1, world, objects);
+        return attenuation * rayColour(scattered, depth + 1, world, objects, tex_buf);
     }
 
     // If the ray does not hit any of the world objects, we compute the ray colour

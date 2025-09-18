@@ -8,19 +8,15 @@ const HittableList = hittable.HittableList;
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
 const Sphere = hittable.Sphere;
+const Texture = @import("texture.zig").Texture;
 const Vec3 = vec.Vec3;
 
 pub fn main() !void {
     const gpa = std.heap.smp_allocator;
 
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img3.ppm";
+    const ppm_fname = "img4.ppm";
     const path = ppm_dir ++ ppm_fname;
-
-    // Create writer to stdout.
-    // var stdout_buffer: [8]u8 = undefined;
-    // var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    // const stdout = &stdout_writer.interface;
 
     // Create or open ppm file.
     const file = try std.fs.cwd().createFile(path, .{ .read = true });
@@ -33,21 +29,32 @@ pub fn main() !void {
 
     const object_capacity = 490;
     var objects: HittableList = try .initCapacity(gpa, object_capacity);
-    try initObjects(&objects);
+
+    const checker_textures = [_]Texture{
+        .{
+            .solid_colour = .initRgb(0.2, 0.3, 0.1),
+        },
+        .{
+            .solid_colour = .initRgb(0.9, 0.9, 0.9),
+        },
+        .{ .checker = .init(0.32, 0, 1) },
+    };
+
+    try bouncingSpheres(&objects, &checker_textures);
 
     var world: Bvh = .init(gpa);
     try world.build(objects.objects.items);
 
     const cam: Camera = .default;
-    try cam.render(file_out, &world, objects.objects.items);
+    try cam.render(file_out, &world, objects.objects.items, &checker_textures);
 }
 
 fn initObjects2(world: *HittableList) !void {
     const ground: Material = .{
-        .lambertian = .{ .albedo = .{ 0.8, 0.8, 0 } },
+        .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.8, 0.8, 0) } },
     };
     const center: Material = .{
-        .lambertian = .{ .albedo = .{ 0.1, 0.2, 0.5 } },
+        .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.1, 0.2, 0.5) } },
     };
     const left: Material = .{
         .metal = .{ .albedo = .{ 0.8, 0.8, 0.8 }, .fuzz = 0.3 },
@@ -77,10 +84,10 @@ fn initObjects1(world: *HittableList) !void {
     const R = @cos(std.math.pi * 0.25);
 
     const left: Material = .{
-        .lambertian = .{ .albedo = .{ 0, 0, 1 } },
+        .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0, 0, 1) } },
     };
     const right: Material = .{
-        .lambertian = .{ .albedo = .{ 1, 0, 0 } },
+        .lambertian = .{ .tex = .{ .solid_colour = .initRgb(1, 0, 0) } },
     };
 
     var objects = [2]Sphere{
@@ -90,10 +97,15 @@ fn initObjects1(world: *HittableList) !void {
     try world.addSlice(&objects);
 }
 
-fn initObjects(world: *HittableList) !void {
+fn bouncingSpheres(world: *HittableList, tex_buf: []const Texture) !void {
+    // const ground: Material = .{
+    //     .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.5, 0.5, 0.5) } },
+    // };
+
     const ground: Material = .{
-        .lambertian = .{ .albedo = .{ 0.5, 0.5, 0.5 } },
+        .lambertian = .{ .tex = tex_buf[tex_buf.len - 1] },
     };
+
     try world.add(.init(Point3{ 0, -1000, 0 }, 1000, ground));
 
     for (0..22) |i| {
@@ -114,7 +126,7 @@ fn initObjects(world: *HittableList) !void {
                 if (choose_mat < 0.8) {
                     // Diffuse
                     material = .{
-                        .lambertian = .{ .albedo = vec.randomVec() * vec.randomVec() },
+                        .lambertian = .{ .tex = .{ .solid_colour = .{ .albedo = vec.randomVec() * vec.randomVec() } } },
                     };
                     try world.add(
                         .initMoving(
@@ -153,7 +165,7 @@ fn initObjects(world: *HittableList) !void {
         .init(
             Point3{ -4, 1, 0 },
             1,
-            .{ .lambertian = .{ .albedo = .{ 0.4, 0.2, 0.1 } } },
+            .{ .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.4, 0.2, 0.1) } } },
         ),
         .init(
             Point3{ 4, 1, 0 },

@@ -4,11 +4,18 @@ const vec = @import("vec.zig");
 const Colour = vec.Colour;
 const Vec3 = vec.Vec3;
 const Ray = @import("Ray.zig");
+const Texture = @import("texture.zig").Texture;
 const HitRecord = @import("hittable.zig").HitRecord;
 
 pub const Material = union(enum) {
     lambertian: struct {
-        albedo: Colour,
+        tex: Texture,
+
+        pub fn fromAlbedo(albedo: Colour) @This() {
+            return .{
+                .tex = .{ .solid_colour = .{ .albedo = albedo } },
+            };
+        }
 
         fn scatter(_: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
             var scatter_dir: Vec3 = hit.normal + vec.randomUnitVec();

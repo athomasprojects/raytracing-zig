@@ -10,6 +10,8 @@ const Vec3 = vec.Vec3;
 
 pub const HitRecord = struct {
     t: f64,
+    u: f64 = 0, // Texture coordinate.
+    v: f64 = 0, // Texture coordinate.
     p: Point3,
     normal: Vec3,
     front_face: bool,
@@ -72,13 +74,6 @@ pub const HittableList = struct {
             self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
             try self.ptrs.append(self.gpa, &self.objects.items[start + offset]);
             // try self.indices.append(self.gpa, @intCast(start + offset));
-        }
-    }
-
-    pub fn addIndices(self: *HittableList) !void {
-        self.indices = try self.gpa.alloc(u32, self.objects.items.len);
-        for (0..self.objects.items.len) |idx| {
-            self.indices[idx] = @intCast(idx);
         }
     }
 
