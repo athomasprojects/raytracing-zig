@@ -26,6 +26,7 @@ pub const Material = union(enum) {
             return .initMoving(hit.p, scatter_dir, ray_in.time);
         }
     },
+
     metal: struct {
         albedo: Colour,
         fuzz: f64,
@@ -42,6 +43,7 @@ pub const Material = union(enum) {
             return if (vec.dot(reflected, hit.normal) > 0) .initMoving(hit.p, reflected, ray_in.time) else null;
         }
     },
+
     dielectric: struct {
         // zig fmt: off
         albedo: Colour,

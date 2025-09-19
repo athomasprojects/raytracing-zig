@@ -50,12 +50,22 @@ pub const default: Camera = .init(
     10,
 );
 
-pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_per_pixel: comptime_float, vertical_fov_deg: comptime_float, look_from: Vec3, look_at: Vec3, v_up: Vec3, defocus_angle_deg: comptime_float, focus_dist: comptime_float) Camera {
+pub fn init(
+    aspect_ratio: comptime_float,
+    image_width: comptime_float,
+    samples_per_pixel: comptime_float,
+    vertical_fov_deg: comptime_float,
+    look_from: Vec3,
+    look_at: Vec3,
+    v_up: Vec3,
+    defocus_angle_deg: comptime_float,
+    focus_dist: comptime_float,
+) Camera {
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
     const image_height: comptime_int = @intFromFloat(@as(comptime_float, image_width) / aspect_ratio);
-    const camera_center = look_from;
+    // const camera_center = look_from;
 
     // Determine viewport dimensions.
     const h = @tan(std.math.degreesToRadians(vertical_fov_deg) * 0.5);
@@ -77,7 +87,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
 
     // Calculate location of upper left pixel.
     // const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focus_dist) - vec.scale(viewport_u, 0.5) - vec.scale(viewport_v, 0.5);
-    const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focus_dist) - vec.scale(viewport_u + viewport_v, 0.5);
+    const viewport_upper_left: Vec3 = look_from - vec.scale(w, focus_dist) - vec.scale(viewport_u + viewport_v, 0.5);
     const pixel00_loc: Vec3 = viewport_upper_left + vec.scale(pixel_delta_u + pixel_delta_v, 0.5);
 
     // Calculate the camera defocus disk basis vectors.
@@ -95,7 +105,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
         .defocus_angle_deg = defocus_angle_deg,
         .focus_dist = focus_dist,
         ._image_height = image_height,
-        ._center = camera_center,
+        ._center = look_from,
         ._pixel00_loc = pixel00_loc,
         ._pixel_delta_u = pixel_delta_u,
         ._pixel_delta_v = pixel_delta_v,
@@ -109,7 +119,7 @@ pub fn init(aspect_ratio: comptime_float, image_width: comptime_float, samples_p
     };
 }
 
-pub fn render(self: Camera, file_out: *Writer, world: *Bvh, objects: []const Sphere, tex_buf: []const Texture) !void {
+pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, objects: []const Sphere, tex_buf: []const Texture) !void {
     var progress_buf: [1024]u8 = undefined;
     const progress_node = std.Progress.start(.{
         .draw_buffer = &progress_buf,
@@ -141,7 +151,7 @@ pub fn render(self: Camera, file_out: *Writer, world: *Bvh, objects: []const Sph
         pool.spawnWg(&wg, Camera.renderRow, .{
             self,
             @as(f64, @floatFromInt(row)),
-            world,
+            bvh,
             objects,
             tex_buf,
             image_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
@@ -155,14 +165,14 @@ pub fn render(self: Camera, file_out: *Writer, world: *Bvh, objects: []const Sph
     try file_out.flush();
 }
 
-fn renderRow(self: Camera, row: f64, world: *Bvh, objects: []const Sphere, tex_buf: []const Texture, scanline: [][3]u8, progress_node: std.Progress.Node) void {
+fn renderRow(self: Camera, row: f64, bvh: *Bvh, objects: []const Sphere, tex_buf: []const Texture, scanline: [][3]u8, progress_node: std.Progress.Node) void {
     defer progress_node.completeOne();
 
     for (0..self.image_width) |column| {
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.getRay(@floatFromInt(column), row);
-            pixel_colour += rayColour(ray, 0, world, objects, tex_buf);
+            pixel_colour += rayColour(ray, 0, bvh, objects, tex_buf);
         }
         pixel_colour *= self._pixel_samples_scale;
 
@@ -208,22 +218,21 @@ fn defocusDiskSample(self: Camera) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(r: Ray, depth: comptime_int, world: *Bvh, objects: []const Sphere, tex_buf: []const Texture) Colour {
+fn rayColour(r: Ray, depth: comptime_int, bvh: *Bvh, objects: []const Sphere, tex_buf: []const Texture) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
-    if (world.hit(objects, r, interval)) |hit| {
+    if (bvh.hit(objects, r, interval)) |hit| {
         const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
         const attenuation: Colour = switch (hit.mat) {
             .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
-            .metal => |m| m.albedo,
-            .dielectric => |m| m.albedo,
+            inline else => |m| m.albedo,
         };
-        return attenuation * rayColour(scattered, depth + 1, world, objects, tex_buf);
+        return attenuation * rayColour(scattered, depth + 1, bvh, objects, tex_buf);
     }
 
-    // If the ray does not hit any of the world objects, we compute the ray colour
+    // If the ray does not hit any of the objects in the scene, we compute the ray colour
     // as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
     // This renders the sky.
     const unit_direction: Vec3 = vec.unit(r.direction);

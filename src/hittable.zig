@@ -1,7 +1,9 @@
 const std = @import("std");
 const vec = @import("vec.zig");
+
 const Allocator = std.mem.Allocator;
 const Aabb = @import("AxisAlignedBoundingBox.zig");
+const BoundedList = @import("util.zig").BoundedList;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
@@ -28,66 +30,6 @@ pub const HitRecord = struct {
             .front_face = front_face,
             .mat = mat,
         };
-    }
-};
-
-pub const HittableList = struct {
-    gpa: Allocator,
-    objects: std.ArrayListUnmanaged(Sphere) = .empty,
-    ptrs: std.ArrayListUnmanaged(*Sphere) = .empty,
-    // indices: []u32 = &.{},
-    root_bbox: Aabb = .empty,
-
-    pub fn init(gpa: Allocator) !HittableList {
-        return .{
-            .gpa = gpa,
-        };
-    }
-
-    pub fn initCapacity(gpa: Allocator, size: usize) !HittableList {
-        return .{
-            .gpa = gpa,
-            .objects = try .initCapacity(gpa, size),
-            .ptrs = try .initCapacity(gpa, size),
-            // .indices = try gpa.alloc(u32, size),
-        };
-    }
-
-    pub fn deinit(self: *HittableList) void {
-        self.objects.deinit(self.gpa);
-        self.ptrs.deinit(self.gpa);
-        // self.indices.deinit(self.gpa);
-    }
-
-    pub fn add(self: *HittableList, object: Sphere) !void {
-        try self.objects.append(self.gpa, object);
-        try self.ptrs.append(self.gpa, &self.objects.items[self.objects.items.len - 1]);
-        // try self.indices.append(self.gpa, @intCast(self.objects.items.len - 1));
-        self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
-    }
-
-    pub fn addSlice(self: *HittableList, objects: []Sphere) !void {
-        const start = self.objects.items.len;
-        try self.objects.appendSlice(self.gpa, objects);
-
-        for (objects, 0..objects.len) |object, offset| {
-            self.root_bbox = .fromEnclosedBoxes(self.root_bbox, object.bbox);
-            try self.ptrs.append(self.gpa, &self.objects.items[start + offset]);
-            // try self.indices.append(self.gpa, @intCast(start + offset));
-        }
-    }
-
-    pub fn hitAll(self: *HittableList, ray: Ray, ray_interval: Interval) ?HitRecord {
-        var hit: ?HitRecord = null;
-        var closest_so_far = vec.infinity;
-
-        for (self.objects.items) |object| {
-            if (object.hit(ray, .{ .min = ray_interval.min, .max = closest_so_far })) |h| {
-                closest_so_far = h.t;
-                hit = h;
-            }
-        }
-        return hit;
     }
 };
 
@@ -141,12 +83,12 @@ pub const Sphere = struct {
         // Find the nearest root that lies in the acceptable range.
         const sqrtd = std.math.sqrt(discriminant);
         var root = (h - sqrtd) / a;
+
         if (!ray_interval.surrounds(root)) {
             root = (h + sqrtd) / a;
-            if (!ray_interval.surrounds(root)) {
-                return null;
-            }
+            if (!ray_interval.surrounds(root)) return null;
         }
+
         return .init(ray, root, current_center, self.radius, self.mat);
     }
 };

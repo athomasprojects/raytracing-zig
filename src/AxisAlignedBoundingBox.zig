@@ -73,9 +73,6 @@ pub fn hit(self: Aabb, ray: Ray, ray_interval: Interval) bool {
     const fields = @typeInfo(Aabb).@"struct".fields;
     for (0..fields.len) |axis_idx| {
         const ax: Interval = self.axisInterval(axis_idx);
-        // const ax: Interval = switch (axis_idx) {
-        //     0...fields.len - 1 => @field(self, fields[axis_idx].name),
-        // };
         const adinv: f64 = 1.0 / ray.direction[axis_idx];
 
         const t0 = (ax.min - ray.origin[axis_idx]) * adinv;
