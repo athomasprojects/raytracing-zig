@@ -5,18 +5,18 @@ const vec = @import("vec.zig");
 
 const BoundedList = @import("util.zig").BoundedList;
 const Bvh = bvh.Bvh;
+const BvhNode = bvh.Node;
 const Camera = @import("Camera.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
 const Sphere = hittable.Sphere;
 const Texture = @import("texture.zig").Texture;
 const Vec3 = vec.Vec3;
+const Writer = std.Io.Writer;
 
 pub fn main() !void {
-    const gpa = std.heap.smp_allocator;
-
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img6.ppm";
+    const ppm_fname = "img5.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -38,80 +38,43 @@ pub fn main() !void {
         .{ .checker = .init(0.32, 0, 1) },
     };
 
-    var primitives: BoundedList(Sphere) = try bouncingSpheres(gpa, 490, &checker_textures);
-    defer primitives.deinit(gpa);
-
-    var bounding_volumes: Bvh = try .buildAllocating(gpa, primitives.list.items);
-    defer bounding_volumes.deinit(gpa);
-
-    const cam: Camera = .default;
-    try cam.render(file_out, &bounding_volumes, primitives.list.items, &checker_textures);
+    try checkeredSpheres(file_out, &checker_textures);
+    // try bouncingSpheres(file_out, 490, &checker_textures);
 }
 
-fn initObjects2(buf: []Sphere) !BoundedList(Sphere) {
-    var objects = comptime blk: {
-        const ground: Material = .{
-            .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.8, 0.8, 0) } },
-        };
-        const center: Material = .{
-            .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.1, 0.2, 0.5) } },
-        };
-        const left: Material = .{
-            .metal = .{ .albedo = .{ 0.8, 0.8, 0.8 }, .fuzz = 0.3 },
-        };
-        _ = left;
-        const right: Material = .{
-            .metal = .{ .albedo = .{ 0.8, 0.6, 0.2 }, .fuzz = 1 },
-        };
-        const left_glass: Material = .{
-            .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
-        };
-        const bubble: Material = .{
-            .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.0 / 1.5 },
-        };
-
-        break :blk [_]Sphere{
-            .init(.{ 0, -100.5, -1 }, 100, ground),
-            .init(.{ 0, 0, -1.2 }, 0.5, center),
-            .init(.{ -1, 0, -1 }, 0.5, left_glass),
-            .init(.{ -1, 0, -1 }, 0.4, bubble),
-            .init(.{ 1, 0, -1 }, 0.5, right),
-        };
+fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+    var objects = comptime [_]Sphere{
+        .init(
+            Point3{ 0, -10, 0 },
+            10,
+            .{ .lambertian = .{ .tex = tex_buf[tex_buf.len - 1] } },
+        ),
+        .init(
+            Point3{ 0, 10, 0 },
+            10,
+            .{ .lambertian = .{ .tex = tex_buf[tex_buf.len - 1] } },
+        ),
     };
 
-    var primitives: BoundedList(Sphere) = .init(buf);
+    const prim_cap = 2;
+    var prim_buf: [prim_cap]Sphere = undefined;
+    var indices: [prim_cap]u32 = undefined;
+    var node_buf: [2 * prim_cap - 1]BvhNode = undefined;
+
+    var primitives: BoundedList(Sphere) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&objects);
-    return primitives;
+
+    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    const cam: Camera = .checker;
+    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }
 
-fn initObjects1(buf: []Sphere) !BoundedList(Sphere) {
-    var objects = comptime blk: {
-        const R = @cos(std.math.pi * 0.25);
-
-        const left: Material = .{
-            .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0, 0, 1) } },
-        };
-        const right: Material = .{
-            .lambertian = .{ .tex = .{ .solid_colour = .initRgb(1, 0, 0) } },
-        };
-
-        break :blk [_]Sphere{
-            .init(.{ -R, 0, -1 }, R, left),
-            .init(.{ R, 0, -1 }, R, right),
-        };
-    };
-
-    var primitives: BoundedList(Sphere) = .init(buf);
-    try primitives.list.appendSliceBounded(&objects);
-    return primitives;
-}
-
-fn bouncingSpheres(gpa: std.mem.Allocator, max_capacity: usize, tex_buf: []const Texture) !BoundedList(Sphere) {
-    // const ground: Material = .{
-    //     .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.5, 0.5, 0.5) } },
-    // };
+fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, tex_buf: []const Texture) !void {
+    const gpa = std.heap.smp_allocator;
 
     var primitives: BoundedList(Sphere) = try .initCapacity(gpa, max_capacity);
+    defer primitives.deinit(gpa);
 
     const ground: Material = .{
         .lambertian = .{ .tex = tex_buf[tex_buf.len - 1] },
@@ -186,5 +149,9 @@ fn bouncingSpheres(gpa: std.mem.Allocator, max_capacity: usize, tex_buf: []const
     };
     try primitives.list.appendSliceBounded(&objects);
 
-    return primitives;
+    var bounding_volumes: Bvh = try .buildAllocating(gpa, primitives.list.items);
+    defer bounding_volumes.deinit(gpa);
+
+    const cam: Camera = .default;
+    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }

@@ -50,6 +50,18 @@ pub const default: Camera = .init(
     10,
 );
 
+pub const checker: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 13, 2, 3 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0,
+    10,
+);
+
 pub fn init(
     aspect_ratio: comptime_float,
     image_width: comptime_float,
