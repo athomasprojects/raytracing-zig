@@ -62,6 +62,18 @@ pub const checker: Camera = .init(
     10,
 );
 
+pub const earth: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 0, 0, 12 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0,
+    10,
+);
+
 pub fn init(
     aspect_ratio: comptime_float,
     image_width: comptime_float,
@@ -76,13 +88,13 @@ pub fn init(
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
-    const image_height: comptime_int = @intFromFloat(@as(comptime_float, image_width) / aspect_ratio);
+    const image_height: comptime_int = @intFromFloat(image_width / aspect_ratio);
     // const camera_center = look_from;
 
     // Determine viewport dimensions.
     const h = @tan(std.math.degreesToRadians(vertical_fov_deg) * 0.5);
     const viewport_height = 2 * h * focus_dist;
-    const viewport_width: comptime_float = viewport_height * (@as(comptime_float, image_width) / @as(comptime_float, image_height));
+    const viewport_width: comptime_float = viewport_height * image_width / @as(comptime_float, image_height);
 
     // Calculate the {u,v,w} orthonormal basis vectors for the camera coordinate frame.
     const w = vec.unit(look_from - look_at);
@@ -160,7 +172,7 @@ pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, objects: []const Spher
     );
 
     for (0..self._image_height) |row| {
-        pool.spawnWg(&wg, Camera.renderRow, .{
+        pool.spawnWg(&wg, Camera.renderScanline, .{
             self,
             @as(f64, @floatFromInt(row)),
             bvh,
@@ -177,13 +189,21 @@ pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, objects: []const Spher
     try file_out.flush();
 }
 
-fn renderRow(self: Camera, row: f64, bvh: *Bvh, objects: []const Sphere, tex_buf: []const Texture, scanline: [][3]u8, progress_node: std.Progress.Node) void {
+fn renderScanline(
+    self: Camera,
+    row_idx: f64,
+    bvh: *Bvh,
+    objects: []const Sphere,
+    tex_buf: []const Texture,
+    scanline: [][3]u8,
+    progress_node: std.Progress.Node,
+) void {
     defer progress_node.completeOne();
 
-    for (0..self.image_width) |column| {
+    for (0..self.image_width) |col_idx| {
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
-            const ray = self.getRay(@floatFromInt(column), row);
+            const ray = self.getRay(@floatFromInt(col_idx), row_idx);
             pixel_colour += rayColour(ray, 0, bvh, objects, tex_buf);
         }
         pixel_colour *= self._pixel_samples_scale;
@@ -195,7 +215,7 @@ fn renderRow(self: Camera, row: f64, bvh: *Bvh, objects: []const Sphere, tex_buf
         const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
 
         // Write pixel colour components to scanline buffer.
-        scanline[column] = .{ r_byte, g_byte, b_byte };
+        scanline[col_idx] = .{ r_byte, g_byte, b_byte };
     }
 }
 

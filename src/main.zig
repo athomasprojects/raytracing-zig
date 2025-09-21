@@ -16,7 +16,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img5.ppm";
+    const ppm_fname = "img6.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -38,12 +38,40 @@ pub fn main() !void {
         .{ .checker = .init(0.32, 0, 1) },
     };
 
-    try checkeredSpheres(file_out, &checker_textures);
+    try earth(file_out, &checker_textures);
     // try bouncingSpheres(file_out, 490, &checker_textures);
+    // try checkeredSpheres(file_out, &checker_textures);
+}
+
+pub fn earth(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+    const gpa = std.heap.smp_allocator;
+
+    var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg") };
+    defer switch (earth_texture) {
+        .image => |*img| img.deinit(gpa),
+        else => unreachable,
+    };
+
+    const prim_count = 1;
+    var prim_buf: [prim_count]Sphere = undefined;
+    var indices: [prim_count]u32 = undefined;
+    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+
+    var primitives: BoundedList(Sphere) = .init(&prim_buf);
+    try primitives.list.appendBounded(.init(
+        vec.zero,
+        2,
+        .{ .lambertian = .{ .tex = earth_texture } }, // Earth surface.
+    ));
+
+    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    const cam: Camera = .earth;
+    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }
 
 fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    var objects = comptime [_]Sphere{
+    const objects = [_]Sphere{
         .init(
             Point3{ 0, -10, 0 },
             10,
@@ -56,10 +84,9 @@ fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !vo
         ),
     };
 
-    const prim_cap = 2;
-    var prim_buf: [prim_cap]Sphere = undefined;
-    var indices: [prim_cap]u32 = undefined;
-    var node_buf: [2 * prim_cap - 1]BvhNode = undefined;
+    var prim_buf: [objects.len]Sphere = undefined;
+    var indices: [objects.len]u32 = undefined;
+    var node_buf: [2 * objects.len - 1]BvhNode = undefined;
 
     var primitives: BoundedList(Sphere) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&objects);
@@ -70,7 +97,7 @@ fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !vo
     try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }
 
-fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, tex_buf: []const Texture) !void {
+fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime tex_buf: []const Texture) !void {
     const gpa = std.heap.smp_allocator;
 
     var primitives: BoundedList(Sphere) = try .initCapacity(gpa, max_capacity);
@@ -130,7 +157,7 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, tex_buf: 
         }
     }
 
-    var objects = [3]Sphere{
+    try primitives.list.appendSliceBounded(&.{
         .init(
             Point3{ 0, 1, 0 },
             1,
@@ -146,8 +173,7 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, tex_buf: 
             1,
             .{ .metal = .{ .albedo = .{ 0.7, 0.6, 0.5 }, .fuzz = 0 } },
         ),
-    };
-    try primitives.list.appendSliceBounded(&objects);
+    });
 
     var bounding_volumes: Bvh = try .buildAllocating(gpa, primitives.list.items);
     defer bounding_volumes.deinit(gpa);

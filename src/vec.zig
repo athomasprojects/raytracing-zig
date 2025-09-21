@@ -2,6 +2,8 @@ const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
 const sqrt = math.sqrt;
+pub const acos = math.acos;
+pub const atan2 = math.atan2;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -14,6 +16,8 @@ pub const sqrt3: f64 = sqrt(@as(f64, 3));
 pub const infinity = std.math.inf(f64);
 pub const tolerance = 1e-8;
 pub const tolerance_vec: Vec3 = @splat(1e-8);
+pub const pi = math.pi;
+pub const two_pi = 2 * math.pi;
 
 pub const zero: Vec3 = @splat(0);
 pub const one: Vec3 = @splat(1);
