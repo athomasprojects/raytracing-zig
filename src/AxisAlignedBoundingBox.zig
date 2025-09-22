@@ -24,12 +24,6 @@ pub fn fromPoints(a: Point3, b: Point3) Aabb {
     var bbox: Aabb = undefined;
     const fields = @typeInfo(Aabb).@"struct".fields;
     inline for (fields, 0..fields.len) |field, idx| {
-        // With `inline for` the function gets generated as
-        // a series of `if` statements relying on the optimizer
-        // to convert it to a switch.
-        // if (field.value == @intFromEnum(any)) {
-        //     return @field(any, field.name).len;
-        // }
         switch (idx) {
             0...fields.len - 1 => @field(bbox, field.name) = if (a[idx] <= b[idx]) .{ .min = a[idx], .max = b[idx] } else .{ .min = b[idx], .max = a[idx] },
             else => unreachable, // return error.IndexOutOfBounds,

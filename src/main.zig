@@ -16,7 +16,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img6.ppm";
+    const ppm_fname = "img7.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -38,9 +38,37 @@ pub fn main() !void {
         .{ .checker = .init(0.32, 0, 1) },
     };
 
-    try earth(file_out, &checker_textures);
+    try perlinSpheres(file_out, &checker_textures);
+    // try earth(file_out, &checker_textures);
     // try bouncingSpheres(file_out, 490, &checker_textures);
     // try checkeredSpheres(file_out, &checker_textures);
+}
+
+pub fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+    const perlin: Texture = .{ .noise = .init() };
+    const prim_count = 2;
+    var prim_buf: [prim_count]Sphere = undefined;
+    var indices: [prim_count]u32 = undefined;
+    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+
+    var primitives: BoundedList(Sphere) = .init(&prim_buf);
+    try primitives.list.appendSliceBounded(&.{
+        .init(
+            Point3{ 0, -1000, 0 },
+            1000,
+            .{ .lambertian = .{ .tex = perlin } },
+        ),
+        .init(
+            Point3{ 0, 2, 0 },
+            2,
+            .{ .lambertian = .{ .tex = perlin } },
+        ),
+    });
+
+    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    const cam: Camera = .checker;
+    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }
 
 pub fn earth(file_writer: *Writer, comptime tex_buf: []const Texture) !void {

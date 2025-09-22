@@ -140,6 +140,57 @@ pub const Texture = union(enum) {
         }
     },
 
+    noise: struct {
+        rand_floats: [point_count]f64 = .{0} ** point_count,
+        perm_x: [point_count]u32 = .{0} ** point_count,
+        perm_y: [point_count]u32 = .{0} ** point_count,
+        perm_z: [point_count]u32 = .{0} ** point_count,
+
+        const point_count: u32 = 256;
+
+        pub fn init() @This() {
+            var perlin: @This() = .{};
+            for (0..perlin.rand_floats.len) |i| {
+                perlin.rand_floats[i] = vec.randomFloat();
+            }
+
+            const fields = @typeInfo(@This()).@"struct".fields;
+            inline for (fields[1..]) |field| perlinGeneratePermutation(&@field(perlin, field.name));
+
+            // perlinGeneratePermutation(&perlin.perm_x);
+            // perlinGeneratePermutation(&perlin.perm_y);
+            // perlinGeneratePermutation(&perlin.perm_z);
+
+            return perlin;
+        }
+
+        fn perlinGeneratePermutation(p: []u32) void {
+            for (0..p.len) |i| p[i] = @as(u32, @intCast(i));
+            permute(p);
+        }
+
+        fn permute(p: []u32) void {
+            var i = point_count - 1;
+            while (i > 0) : (i -= 1) {
+                const target = @as(u32, @intCast(vec.randomInt(0, i)));
+                const tmp = p[i];
+                p[i] = p[target];
+                p[target] = tmp;
+            }
+        }
+
+        fn value(self: @This(), _: f64, _: f64, p: Point3, _: []const Texture) Colour {
+            return vec.splat(self.noise(p));
+        }
+
+        fn noise(self: @This(), p: Point3) f64 {
+            const i = @as(u32, @intFromFloat(4 * vec.x(p))) & 255;
+            const j = @as(u32, @intFromFloat(4 * vec.y(p))) & 255;
+            const k = @as(u32, @intFromFloat(4 * vec.z(p))) & 255;
+            return self.rand_floats[self.perm_x[i] ^ self.perm_y[j] ^ self.perm_z[k]];
+        }
+    },
+
     pub fn value(self: Texture, u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
         return switch (self) {
             inline else => |tex| tex.value(u, v, p, tex_buf),
