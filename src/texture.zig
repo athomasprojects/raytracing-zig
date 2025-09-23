@@ -196,9 +196,14 @@ pub const Texture = union(enum) {
             // sample point and returning the corresponding pseudo-random float from our LUT.
 
             // Compute the "in-cell" coordinates (i.e. how far along the voxel we are).
-            const u = vec.x(p) - @floor(vec.x(p));
-            const v = vec.y(p) - @floor(vec.y(p));
-            const w = vec.z(p) - @floor(vec.z(p));
+            var u = vec.x(p) - @floor(vec.x(p));
+            var v = vec.y(p) - @floor(vec.y(p));
+            var w = vec.z(p) - @floor(vec.z(p));
+
+            // Use a Hermite cubic spline to round off the interpolation.
+            u = u * u * (3 - 2 * u);
+            v = v * v * (3 - 2 * v);
+            w = w * w * (3 - 2 * w);
 
             const i: i32 = @intFromFloat(@floor(vec.x(p)));
             const j: i32 = @intFromFloat(@floor(vec.y(p)));
