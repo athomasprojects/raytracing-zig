@@ -3,6 +3,7 @@ const vec = @import("vec.zig");
 
 const Colour = vec.Colour;
 const Point3 = vec.Point3;
+const Vec3 = vec.Vec3;
 
 const stb = @cImport({
     @cDefine("STBI_ONLY_JPEG", "");
@@ -150,7 +151,7 @@ pub const Texture = union(enum) {
 
     noise: struct {
         scale: f64,
-        rand_floats: [point_count]f64 = .{0} ** point_count, // Array of random f64s in [0,1).
+        rand_unit_vecs: [point_count]Vec3 = .{vec.zero} ** point_count,
         perm_x: [point_count]u32 = .{0} ** point_count,
         perm_y: [point_count]u32 = .{0} ** point_count,
         perm_z: [point_count]u32 = .{0} ** point_count,
@@ -160,9 +161,9 @@ pub const Texture = union(enum) {
         pub fn init(scale: f64) @This() {
             var perlin: @This() = .{ .scale = scale };
 
-            // Generate array of random floats.
-            for (0..perlin.rand_floats.len) |i| {
-                perlin.rand_floats[i] = vec.randomFloat();
+            // Generate array of unit vectors with random translations.
+            for (0..perlin.rand_unit_vecs.len) |i| {
+                perlin.rand_unit_vecs[i] = vec.unit(vec.randomVecInRange(-1, 1));
             }
 
             // Generate permutation arrays used to randomize indices in noise generation.
@@ -188,7 +189,7 @@ pub const Texture = union(enum) {
         }
 
         fn value(self: @This(), _: f64, _: f64, p: Point3, _: []const Texture) Colour {
-            return vec.splat(self.noise(vec.scale(p, self.scale)));
+            return vec.splat(0.5 * (1 + self.noise(vec.scale(p, self.scale))));
         }
 
         /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.
@@ -197,26 +198,24 @@ pub const Texture = union(enum) {
             // sample point and returning the corresponding pseudo-random float from our LUT.
 
             // Compute the "in-cell" coordinates (i.e. how far along the voxel we are).
-            var u = vec.x(p) - @floor(vec.x(p));
-            var v = vec.y(p) - @floor(vec.y(p));
-            var w = vec.z(p) - @floor(vec.z(p));
+            const u = vec.x(p) - @floor(vec.x(p));
+            const v = vec.y(p) - @floor(vec.y(p));
+            const w = vec.z(p) - @floor(vec.z(p));
 
             // Use a Hermite cubic spline to round off the interpolation.
-            u = u * u * (3 - 2 * u);
-            v = v * v * (3 - 2 * v);
-            w = w * w * (3 - 2 * w);
+            const uu = u * u * (3 - 2 * u);
+            const vv = v * v * (3 - 2 * v);
+            const ww = w * w * (3 - 2 * w);
 
             const i: i32 = @intFromFloat(@floor(vec.x(p)));
             const j: i32 = @intFromFloat(@floor(vec.y(p)));
             const k: i32 = @intFromFloat(@floor(vec.z(p)));
 
-            // Pre-compute 1-u, 1-v, 1-w to avoid branching inside the loop.
-            const u_factors: [2]f64 = [2]f64{ 1.0 - u, u };
-            const v_factors: [2]f64 = [2]f64{ 1.0 - v, v };
-            const w_factors: [2]f64 = [2]f64{ 1.0 - w, w };
+            const u_factors: [2]f64 = [2]f64{ 1.0 - uu, uu };
+            const v_factors: [2]f64 = [2]f64{ 1.0 - vv, vv };
+            const w_factors: [2]f64 = [2]f64{ 1.0 - ww, ww };
 
-            // Pre-compute the 8 trilinear weights.
-            const weights: [8]f64 = [_]f64{
+            const per_corner_interpolation_weights: [8]f64 = [_]f64{
                 u_factors[0] * v_factors[0] * w_factors[0],
                 u_factors[1] * v_factors[0] * w_factors[0],
                 u_factors[0] * v_factors[1] * w_factors[0],
@@ -244,7 +243,15 @@ pub const Texture = union(enum) {
                 const jj: u32 = @intCast((j + offset[1]) & 255);
                 const kk: u32 = @intCast((k + offset[2]) & 255);
                 const hash_idx = self.perm_x[ii] ^ self.perm_y[jj] ^ self.perm_z[kk];
-                accum += weights[index] * self.rand_floats[hash_idx];
+
+                accum += per_corner_interpolation_weights[index] * vec.dot(
+                    self.rand_unit_vecs[hash_idx],
+                    Vec3{
+                        u - @as(f64, @floatFromInt(offset[0])),
+                        v - @as(f64, @floatFromInt(offset[1])),
+                        w - @as(f64, @floatFromInt(offset[2])),
+                    },
+                );
             }
             return accum;
         }
