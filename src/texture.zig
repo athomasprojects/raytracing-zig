@@ -149,6 +149,7 @@ pub const Texture = union(enum) {
     },
 
     noise: struct {
+        scale: f64,
         rand_floats: [point_count]f64 = .{0} ** point_count, // Array of random f64s in [0,1).
         perm_x: [point_count]u32 = .{0} ** point_count,
         perm_y: [point_count]u32 = .{0} ** point_count,
@@ -156,8 +157,8 @@ pub const Texture = union(enum) {
 
         const point_count: u32 = 256;
 
-        pub fn init() @This() {
-            var perlin: @This() = .{};
+        pub fn init(scale: f64) @This() {
+            var perlin: @This() = .{ .scale = scale };
 
             // Generate array of random floats.
             for (0..perlin.rand_floats.len) |i| {
@@ -166,7 +167,7 @@ pub const Texture = union(enum) {
 
             // Generate permutation arrays used to randomize indices in noise generation.
             const fields = @typeInfo(@This()).@"struct".fields;
-            inline for (fields[1..]) |field| perlinGeneratePermutation(&@field(perlin, field.name));
+            inline for (fields[2..]) |field| perlinGeneratePermutation(&@field(perlin, field.name));
 
             return perlin;
         }
@@ -187,7 +188,7 @@ pub const Texture = union(enum) {
         }
 
         fn value(self: @This(), _: f64, _: f64, p: Point3, _: []const Texture) Colour {
-            return vec.splat(self.noise(p));
+            return vec.splat(self.noise(vec.scale(p, self.scale)));
         }
 
         /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.

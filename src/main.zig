@@ -16,7 +16,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img9.ppm";
+    const ppm_fname = "img10.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -45,7 +45,7 @@ pub fn main() !void {
 }
 
 pub fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const perlin: Texture = .{ .noise = .init() };
+    const perlin: Texture = .{ .noise = .init(4) };
     const prim_count = 2;
     var prim_buf: [prim_count]Sphere = undefined;
     var indices: [prim_count]u32 = undefined;
