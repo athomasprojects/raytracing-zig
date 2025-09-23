@@ -116,12 +116,12 @@ pub const Texture = union(enum) {
             // Converting texture coordinates (u,v) into texture (image) indices:
             //     Our image pixel data is represented by a 2D array, where each pixel's position
             //     is given by a coordinate pair (x, y). The pixel data is stored in memory as a
-            //     1D array of bytes, wherein each scanline (row) of pixels is stored sequentially.
+            //     1D array of bytes, wherein each scan line (row) of pixels is stored sequentially.
             //
-            //     1. We can therefore access a particular scanline of pixels by indexing into
+            //     1. We can therefore access a particular scan line of pixels by indexing into
             //     the array by an offset of `row * bytes_per_scanline`.
             //
-            //     2. To select a pixel from a scanline we subsequently index into the scanline
+            //     2. To select a pixel from a scan line we subsequently index into the scan line
             //     by an offset of `col * bytes_per_pixel`.
             //
             //     In general, to convert a 2D coordinate (x, y) to a 1D coordinate we can use: `y * width + x`.
@@ -193,17 +193,54 @@ pub const Texture = union(enum) {
         /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.
         fn noise(self: @This(), p: Point3) f64 {
             // We are effectively hashing (scramble + combine) the coordinates of our
-            // sample point and returning the corresponding pseudo-random float from out LUT.
+            // sample point and returning the corresponding pseudo-random float from our LUT.
 
-            // Scramble the (x, y, z) coordinates of the sample point by their corresponding permutation tables:
-            //   - Scaling factor (4) scales the space so that the noise repeats more frequently.
-            //   - Bitmask takes the lowest 8-bits, ensuring the indices (i, j, k) are in [0,255].
-            const i = @as(u32, @intFromFloat(4 * vec.x(p))) & 255;
-            const j = @as(u32, @intFromFloat(4 * vec.y(p))) & 255;
-            const k = @as(u32, @intFromFloat(4 * vec.z(p))) & 255;
+            // Compute the "in-cell" coordinates (i.e. how far along the voxel we are).
+            const u = vec.x(p) - @floor(vec.x(p));
+            const v = vec.y(p) - @floor(vec.y(p));
+            const w = vec.z(p) - @floor(vec.z(p));
 
-            // 2. Combine the scrambled indices into a hash index (XOR) and lookup the value in float table.
-            return self.rand_floats[self.perm_x[i] ^ self.perm_y[j] ^ self.perm_z[k]];
+            const i: i32 = @intFromFloat(@floor(vec.x(p)));
+            const j: i32 = @intFromFloat(@floor(vec.y(p)));
+            const k: i32 = @intFromFloat(@floor(vec.z(p)));
+
+            // Pre-compute 1-u, 1-v, 1-w to avoid branching inside the loop.
+            const u_factors: [2]f64 = [2]f64{ 1.0 - u, u };
+            const v_factors: [2]f64 = [2]f64{ 1.0 - v, v };
+            const w_factors: [2]f64 = [2]f64{ 1.0 - w, w };
+
+            // Pre-compute the 8 trilinear weights.
+            const weights: [8]f64 = [_]f64{
+                u_factors[0] * v_factors[0] * w_factors[0],
+                u_factors[1] * v_factors[0] * w_factors[0],
+                u_factors[0] * v_factors[1] * w_factors[0],
+                u_factors[1] * v_factors[1] * w_factors[0],
+                u_factors[0] * v_factors[0] * w_factors[1],
+                u_factors[1] * v_factors[0] * w_factors[1],
+                u_factors[0] * v_factors[1] * w_factors[1],
+                u_factors[1] * v_factors[1] * w_factors[1],
+            };
+
+            const offsets: [8][3]i32 = .{
+                .{ 0, 0, 0 },
+                .{ 1, 0, 0 },
+                .{ 0, 1, 0 },
+                .{ 1, 1, 0 },
+                .{ 0, 0, 1 },
+                .{ 1, 0, 1 },
+                .{ 0, 1, 1 },
+                .{ 1, 1, 1 },
+            };
+
+            var accum: f64 = 0;
+            for (offsets, 0..offsets.len) |offset, index| {
+                const ii: u32 = @intCast((i + offset[0]) & 255);
+                const jj: u32 = @intCast((j + offset[1]) & 255);
+                const kk: u32 = @intCast((k + offset[2]) & 255);
+                const hash_idx = self.perm_x[ii] ^ self.perm_y[jj] ^ self.perm_z[kk];
+                accum += weights[index] * self.rand_floats[hash_idx];
+            }
+            return accum;
         }
     },
 

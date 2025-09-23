@@ -16,7 +16,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img7.ppm";
+    const ppm_fname = "img8.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
