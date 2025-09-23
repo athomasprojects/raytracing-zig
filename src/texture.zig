@@ -72,7 +72,7 @@ pub const Texture = union(enum) {
     },
 
     image: struct {
-        data: ?[]u8 = null,
+        data: []u8,
         width: u32 = 0,
         height: u32 = 0,
         bytes_per_scanline: u32 = 0,
@@ -104,44 +104,52 @@ pub const Texture = union(enum) {
         }
 
         pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
-            // stb.stbi_image_free(self.data.ptr);
-            gpa.free(self.data.?);
+            gpa.free(self.data);
             self.* = undefined;
         }
 
         pub fn value(self: Self, u: f64, v: f64, _: Point3, _: []const Texture) Colour {
-            if (self.data) |data| {
-                // Clamp input texture coordinates to [0,1] x [1,0]
-                const u_clamp = std.math.clamp(u, 0, 1);
-                const v_clamp = 1.0 - std.math.clamp(v, 0, 1); // Flip image coordinates.
+            // Clamp input texture coordinates to [0,1] x [1,0]
+            const u_clamp = std.math.clamp(u, 0, 1);
+            const v_clamp = 1.0 - std.math.clamp(v, 0, 1); // Flip image coordinates.
 
-                var col: u32 = @intFromFloat(u_clamp * @as(f64, @floatFromInt(self.width)));
-                var row: u32 = @intFromFloat(v_clamp * @as(f64, @floatFromInt(self.height)));
+            // Converting texture coordinates (u,v) into texture (image) indices:
+            //     Our image pixel data is represented by a 2D array, where each pixel's position
+            //     is given by a coordinate pair (x, y). The pixel data is stored in memory as a
+            //     1D array of bytes, wherein each scanline (row) of pixels is stored sequentially.
+            //
+            //     1. We can therefore access a particular scanline of pixels by indexing into
+            //     the array by an offset of `row * bytes_per_scanline`.
+            //
+            //     2. To select a pixel from a scanline we subsequently index into the scanline
+            //     by an offset of `col * bytes_per_pixel`.
+            //
+            //     In general, to convert a 2D coordinate (x, y) to a 1D coordinate we can use: `y * width + x`.
 
-                if (col >= self.width) col = self.width - 1;
-                if (row >= self.height) row = self.height - 1;
+            // Denormalize the normalized texture space coordinates to 2D texture coordinates (x,y).
+            var col: u32 = @intFromFloat(u_clamp * @as(f64, @floatFromInt(self.width)));
+            var row: u32 = @intFromFloat(v_clamp * @as(f64, @floatFromInt(self.height)));
 
-                const index = row * self.bytes_per_scanline + col * Self.bytes_per_pixel;
-                const pixel = data[index .. index + Self.bytes_per_pixel];
+            if (col >= self.width) col = self.width - 1;
+            if (row >= self.height) row = self.height - 1;
 
-                const colour_scale: f64 = 1.0 / 255.0;
-                return vec.scale(
-                    Colour{
-                        @floatFromInt(pixel[0]),
-                        @floatFromInt(pixel[1]),
-                        @floatFromInt(pixel[2]),
-                    },
-                    colour_scale,
-                );
-            }
+            const index = row * self.bytes_per_scanline + (col * Self.bytes_per_pixel); // Convert 2D coordinate to 1D index.
+            const pixel = self.data[index .. index + Self.bytes_per_pixel];
 
-            // If we have no texture data, then return solid cyan as a debugging aid.
-            return .{ 0, 1, 1 };
+            const colour_scale = 1.0 / 255.0;
+            return vec.scale(
+                Colour{
+                    @floatFromInt(pixel[0]),
+                    @floatFromInt(pixel[1]),
+                    @floatFromInt(pixel[2]),
+                },
+                colour_scale,
+            );
         }
     },
 
     noise: struct {
-        rand_floats: [point_count]f64 = .{0} ** point_count,
+        rand_floats: [point_count]f64 = .{0} ** point_count, // Array of random f64s in [0,1).
         perm_x: [point_count]u32 = .{0} ** point_count,
         perm_y: [point_count]u32 = .{0} ** point_count,
         perm_z: [point_count]u32 = .{0} ** point_count,
@@ -150,16 +158,15 @@ pub const Texture = union(enum) {
 
         pub fn init() @This() {
             var perlin: @This() = .{};
+
+            // Generate array of random floats.
             for (0..perlin.rand_floats.len) |i| {
                 perlin.rand_floats[i] = vec.randomFloat();
             }
 
+            // Generate permutation arrays used to randomize indices in noise generation.
             const fields = @typeInfo(@This()).@"struct".fields;
             inline for (fields[1..]) |field| perlinGeneratePermutation(&@field(perlin, field.name));
-
-            // perlinGeneratePermutation(&perlin.perm_x);
-            // perlinGeneratePermutation(&perlin.perm_y);
-            // perlinGeneratePermutation(&perlin.perm_z);
 
             return perlin;
         }
@@ -183,10 +190,19 @@ pub const Texture = union(enum) {
             return vec.splat(self.noise(p));
         }
 
+        /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.
         fn noise(self: @This(), p: Point3) f64 {
+            // We are effectively hashing (scramble + combine) the coordinates of our
+            // sample point and returning the corresponding pseudo-random float from out LUT.
+
+            // Scramble the (x, y, z) coordinates of the sample point by their corresponding permutation tables:
+            //   - Scaling factor (4) scales the space so that the noise repeats more frequently.
+            //   - Bitmask takes the lowest 8-bits, ensuring the indices (i, j, k) are in [0,255].
             const i = @as(u32, @intFromFloat(4 * vec.x(p))) & 255;
             const j = @as(u32, @intFromFloat(4 * vec.y(p))) & 255;
             const k = @as(u32, @intFromFloat(4 * vec.z(p))) & 255;
+
+            // 2. Combine the scrambled indices into a hash index (XOR) and lookup the value in float table.
             return self.rand_floats[self.perm_x[i] ^ self.perm_y[j] ^ self.perm_z[k]];
         }
     },

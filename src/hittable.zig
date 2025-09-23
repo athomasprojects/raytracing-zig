@@ -12,8 +12,8 @@ const Vec3 = vec.Vec3;
 
 pub const HitRecord = struct {
     t: f64,
-    u: f64, // Texture coordinate.
-    v: f64, // Texture coordinate.
+    u: f64, // Normalized texture space coordinate.
+    v: f64, // Normalized texture space coordinate.
     p: Point3,
     normal: Vec3,
     front_face: bool,
@@ -24,7 +24,17 @@ pub const HitRecord = struct {
         const outward_normal = vec.divScalar(p - center, radius); // Assumed to have unit length.
         const front_face = vec.dot(ray.direction, outward_normal) < 0;
 
-        const theta_rad = vec.acos(-vec.y(outward_normal)); // Polar angle from the positive negative y-axis (i.e. the _bottom_ pole).
+        // The outward normal of the ray-object intersection (hit) point points
+        // to a point on a unit sphere.
+        //
+        // u: Azimuthal angle around the Y axis from X=-1, at the intersection point.
+        // v: Polar angle angle from the positive Y axis (Y=-1) to Y=+1, at the intersection point.
+        //
+        //     <1 0 0> yields <0.50 0.50>       <-1  0  0> yields <0.00 0.50>
+        //     <0 1 0> yields <0.50 1.00>       < 0 -1  0> yields <0.50 0.00>
+        //     <0 0 1> yields <0.25 0.50>       < 0  0 -1> yields <0.75 0.50>
+
+        const theta_rad = vec.acos(-vec.y(outward_normal));
         const phi_rad = vec.atan2(-vec.z(outward_normal), vec.x(outward_normal)) + vec.pi;
 
         return .{
@@ -97,14 +107,4 @@ pub const Sphere = struct {
 
         return .init(ray, root, current_center, self.radius, self.mat);
     }
-
-    // /// `p`: a given point on the sphere of radius one, centered at the origin.
-    // /// `u`: returned value [0,1] of angle around the Y axis from X=-1.
-    // /// `v`: returned value [0,1] of angle from Y=-1 to Y=+1.
-    // pub fn getSphereUv(self: Sphere, p: Point3, u: f64, v: f64) void {
-    //     //     <1 0 0> yields <0.50 0.50>       <-1  0  0> yields <0.00 0.50>
-    //     //     <0 1 0> yields <0.50 1.00>       < 0 -1  0> yields <0.50 0.00>
-    //     //     <0 0 1> yields <0.25 0.50>       < 0  0 -1> yields <0.75 0.50>
-    //
-    // }
 };
