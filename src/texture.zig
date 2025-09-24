@@ -157,6 +157,7 @@ pub const Texture = union(enum) {
         perm_z: [point_count]u32 = .{0} ** point_count,
 
         const point_count: u32 = 256;
+        const max_turbulence_depth = 10;
 
         pub fn init(scale: f64) @This() {
             var perlin: @This() = .{ .scale = scale };
@@ -189,7 +190,7 @@ pub const Texture = union(enum) {
         }
 
         fn value(self: @This(), _: f64, _: f64, p: Point3, _: []const Texture) Colour {
-            return vec.splat(0.5 * (1 + self.noise(vec.scale(p, self.scale))));
+            return vec.splat(self.turbulence(p, 7));
         }
 
         /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.
@@ -254,6 +255,20 @@ pub const Texture = union(enum) {
                 );
             }
             return accum;
+        }
+
+        fn turbulence(self: @This(), p: Point3, depth: u32) f64 {
+            if (depth > max_turbulence_depth) return 0;
+
+            var accum: f64 = 0;
+            var temp_p = p;
+            var weight: f64 = 1;
+            for (0..depth) |_| {
+                accum += weight * self.noise(temp_p);
+                weight *= 0.5;
+                temp_p = vec.scale(temp_p, 2);
+            }
+            return @abs(accum);
         }
     },
 
