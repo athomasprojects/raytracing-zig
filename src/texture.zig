@@ -190,7 +190,7 @@ pub const Texture = union(enum) {
         }
 
         fn value(self: @This(), _: f64, _: f64, p: Point3, _: []const Texture) Colour {
-            return vec.splat(self.turbulence(p, 7));
+            return vec.splat(0.5 * (1 + @sin(self.scale * vec.z(p) + 10 * self.turbulence(p, 7))));
         }
 
         /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.
