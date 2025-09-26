@@ -17,12 +17,13 @@ pub const HitRecord = struct {
     p: Point3,
     normal: Vec3,
     front_face: bool,
-    mat: Material,
+    material: Material,
 };
 
 pub const Primitive = union(enum) {
     sphere: Sphere,
     quad: Quad,
+    box: Box,
 
     pub fn hit(self: *const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
         return switch (self.*) {
@@ -40,20 +41,20 @@ pub const Primitive = union(enum) {
 pub const Sphere = struct {
     center: Ray,
     radius: f64,
-    mat: Material,
+    material: Material,
     bbox: Aabb,
 
-    pub fn init(center: Point3, radius: f64, mat: Material) Sphere {
+    pub fn init(center: Point3, radius: f64, material: Material) Sphere {
         const r: Vec3 = vec.splat(radius);
         return .{
             .center = .init(center, vec.zero),
             .radius = @max(0, radius),
-            .mat = mat,
+            .material = material,
             .bbox = .fromPoints(center - r, center + r),
         };
     }
 
-    pub fn initMoving(center_from: Point3, center_to: Point3, radius: f64, mat: Material) Sphere {
+    pub fn initMoving(center_from: Point3, center_to: Point3, radius: f64, material: Material) Sphere {
         const center: Ray = .init(center_from, center_to - center_from);
         const r: Vec3 = vec.splat(radius);
 
@@ -62,7 +63,7 @@ pub const Sphere = struct {
         return .{
             .center = center,
             .radius = @max(0, radius),
-            .mat = mat,
+            .material = material,
             .bbox = .fromEnclosedBoxes(
                 .fromPoints(center_at_0 - r, center_at_0 + r),
                 .fromPoints(center_at_1 - r, center_at_1 + r),
@@ -104,7 +105,7 @@ pub const Sphere = struct {
             .v = vec.acos(-vec.y(outward_unit_normal)) / vec.pi,
             .normal = if (front_face) outward_unit_normal else -outward_unit_normal,
             .front_face = front_face,
-            .mat = self.mat,
+            .material = self.material,
         };
     }
 };
@@ -116,10 +117,10 @@ pub const Quad = struct {
     w: Vec3, // n = (u x v):  w = n / (n . n)
     unit_normal: Vec3,
     offset: f64,
-    mat: Material,
+    material: Material,
     bbox: Aabb,
 
-    pub fn init(q: Point3, u: Vec3, v: Vec3, mat: Material) Quad {
+    pub fn init(q: Point3, u: Vec3, v: Vec3, material: Material) Quad {
         const n = vec.cross(u, v);
         const normal = vec.unit(n);
 
@@ -135,7 +136,7 @@ pub const Quad = struct {
             .w = vec.divScalar(n, vec.magnitude2(n)),
             .unit_normal = normal,
             .offset = vec.dot(normal, q),
-            .mat = mat,
+            .material = material,
             .bbox = bbox,
         };
     }
@@ -171,7 +172,51 @@ pub const Quad = struct {
             .v = beta,
             .normal = if (front_face) self.unit_normal else -self.unit_normal,
             .front_face = front_face,
-            .mat = self.mat,
+            .material = self.material,
         };
+    }
+};
+
+const Box = struct {
+    sides: [6]Quad,
+    bbox: Aabb,
+
+    /// Creates a 3D box (six sides) that contains the two opposite vertices `a` & `b` to the list of primitives.
+    pub fn init(a: Point3, b: Point3, material: Material) Box {
+
+        // Construct the two opposite vertices with the minimum and maximum coordinates.
+        const min: Point3 = @min(a, b);
+        const max: Point3 = @max(a, b);
+
+        const dx: Vec3 = .{ vec.x(max - min), 0, 0 };
+        const dy: Vec3 = .{ 0, vec.y(max - min), 0 };
+        const dz: Vec3 = .{ 0, 0, vec.z(max - min) };
+
+        const sides = [_]Quad{
+            .init(Point3{ vec.x(min), vec.y(min), vec.z(max) }, dx, dy, material), // front
+            .init(Point3{ vec.x(max), vec.y(min), vec.z(max) }, -dz, dy, material), // right
+            .init(Point3{ vec.x(max), vec.y(min), vec.z(min) }, -dx, dy, material), // back
+            .init(Point3{ vec.x(min), vec.y(min), vec.z(min) }, dz, dy, material), // left
+            .init(Point3{ vec.x(min), vec.y(max), vec.z(max) }, dx, -dz, material), // top
+            .init(Point3{ vec.x(min), vec.y(min), vec.z(min) }, dx, dz, material), // bottom
+        };
+
+        var bbox: Aabb = .empty;
+        for (sides) |side| bbox = .fromEnclosedBoxes(bbox, side.bbox);
+
+        return .{ .sides = sides, .bbox = bbox };
+    }
+
+    fn hit(self: Box, ray: Ray, ray_interval: Interval) ?HitRecord {
+        var closest_hit: ?HitRecord = null;
+        var closest_so_far: f64 = ray_interval.max;
+
+        for (self.sides) |quad| {
+            if (quad.hit(ray, .{ .min = ray_interval.min, .max = closest_so_far })) |h| {
+                closest_hit = h;
+                closest_so_far = h.t;
+            }
+        }
+        return closest_hit;
     }
 };

@@ -106,7 +106,7 @@ pub const Bvh = struct {
             return &self.nodes.list.items[self.nodes.list.items.len - 1].link;
         }
 
-        // Build the bounding box for the span of all the source primitives in this range.
+        // Build the bounding box for the span of all the scene primitives in this range.
         var node_bbox: Aabb = .empty;
         for (indices[start..end]) |idx| node_bbox = .fromEnclosedBoxes(
             node_bbox,

@@ -18,7 +18,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img16.ppm";
+    const ppm_fname = "img17.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -56,7 +56,7 @@ fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     const green: Material = .{ .lambertian = .fromAlbedo(.{ 0.12, 0.45, 0.15 }) };
     const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 15, 15, 15 }) };
 
-    const prim_count = 6;
+    const prim_count = 8;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
     var node_buf: [2 * prim_count - 1]BvhNode = undefined;
@@ -69,6 +69,8 @@ fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .quad = .init(vec.zero, Vec3{ 555, 0, 0 }, Vec3{ 0, 0, 555 }, white) },
         .{ .quad = .init(Point3{ 555, 555, 555 }, Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
         .{ .quad = .init(Point3{ 0, 0, 555 }, Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, white) },
+        .{ .box = .init(Point3{ 130, 0, 65 }, Vec3{ 295, 165, 230 }, white) },
+        .{ .box = .init(Point3{ 265, 0, 295 }, Vec3{ 430, 330, 460 }, white) },
     });
     var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
 

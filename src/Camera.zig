@@ -302,10 +302,10 @@ fn rayColour(self: Camera, r: Ray, depth: comptime_int, bvh: *Bvh, primitives: [
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
     if (bvh.hit(primitives, r, interval)) |hit| {
-        const colour_from_emission = hit.mat.emitted(hit.u, hit.v, hit.p, tex_buf);
-        const scattered_ray = hit.mat.scatter(r, hit) orelse return colour_from_emission;
+        const colour_from_emission = hit.material.emitted(hit.u, hit.v, hit.p, tex_buf);
+        const scattered_ray = hit.material.scatter(r, hit) orelse return colour_from_emission;
 
-        const attenuation: Colour = switch (hit.mat) {
+        const attenuation: Colour = switch (hit.material) {
             .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
             .diffuse_light => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
             inline else => |m| m.albedo,

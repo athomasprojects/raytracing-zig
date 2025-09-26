@@ -28,6 +28,5 @@ pub fn initMoving(origin: Point3, direction: Vec3, time: f64) Ray {
 }
 
 pub fn at(self: Ray, t: f64) Point3 {
-    // return self.origin + vec.scale(self.dir, t);
-    return @mulAdd(Vec3, @splat(t), self.direction, self.origin);
+    return @mulAdd(Vec3, @splat(t), self.direction, self.origin); // R(t) = (t * direction) + origin
 }
