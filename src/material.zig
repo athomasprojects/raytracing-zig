@@ -19,9 +19,9 @@ pub const Material = union(enum) {
 
         fn scatter(_: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
             var scatter_dir: Vec3 = hit.normal + vec.randomUnitVec();
+
             // Catch degenerate scatter direction.
-            if (vec.nearZero(scatter_dir))
-                scatter_dir = hit.normal;
+            if (vec.nearZero(scatter_dir)) scatter_dir = hit.normal;
 
             return .initMoving(hit.p, scatter_dir, ray_in.time);
         }

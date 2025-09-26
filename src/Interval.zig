@@ -39,10 +39,8 @@ pub fn clamp(self: Interval, x: f64) f64 {
     return std.math.clamp(x, self.min, self.max);
 }
 
-pub fn expand(self: Interval, delta: f64) Interval {
+pub fn expandBy(self: *Interval, delta: f64) void {
     const padding = 0.5 * delta;
-    return .{
-        .min = self.min - padding,
-        .max = self.max + padding,
-    };
+    self.min = self.min - padding;
+    self.max = self.max + padding;
 }

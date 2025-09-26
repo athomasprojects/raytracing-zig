@@ -25,17 +25,18 @@ pub fn fromPoints(a: Point3, b: Point3) Aabb {
     const fields = @typeInfo(Aabb).@"struct".fields;
     inline for (fields, 0..fields.len) |field, idx| {
         switch (idx) {
-            0...fields.len - 1 => @field(bbox, field.name) = if (a[idx] <= b[idx]) .{ .min = a[idx], .max = b[idx] } else .{ .min = b[idx], .max = a[idx] },
-            else => unreachable, // return error.IndexOutOfBounds,
+            0...fields.len - 1 => {
+                var interval: Interval = if (a[idx] <= b[idx]) .{ .min = a[idx], .max = b[idx] } else .{ .min = b[idx], .max = a[idx] };
+
+                // Adjust bounding box so that no side is narrower than some delta, padding if necessary.
+                const delta = 0.0001;
+                if (interval.size() < delta) interval.expandBy(delta);
+                @field(bbox, field.name) = interval;
+            },
+            else => unreachable,
         }
     }
     return bbox;
-
-    // return .{
-    //     .x = if (a[0] <= b[0]) .{ .min = a[0], .max = b[0] } else .{ .min = b[0], .max = a[0] },
-    //     .y = if (a[1] <= b[1]) .{ .min = a[1], .max = b[1] } else .{ .min = b[1], .max = a[1] },
-    //     .z = if (a[2] <= b[2]) .{ .min = a[2], .max = b[2] } else .{ .min = b[2], .max = a[2] },
-    // };
 }
 
 pub fn fromEnclosedBoxes(box0: Aabb, box1: Aabb) Aabb {

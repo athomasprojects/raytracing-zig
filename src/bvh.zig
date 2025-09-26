@@ -6,8 +6,8 @@ const Allocator = std.mem.Allocator;
 const BoundedList = @import("util.zig").BoundedList;
 const HitRecord = hittable.HitRecord;
 const Interval = @import("Interval.zig");
+const Primitive = hittable.Primitive;
 const Ray = @import("Ray.zig");
-const Sphere = hittable.Sphere;
 
 const Link = struct {
     left: ?*Link = null,
@@ -42,29 +42,29 @@ pub const Bvh = struct {
     ///
     /// The node buffer determines the tree capacity. Nodes and object primitive
     /// indices are stored in externally initialized and managed memory.
-    pub fn build(node_buf: []Node, objects: []const Sphere, index_buf: []u32) !Bvh {
-        // We can never have more than 2N - 1 nodes, where N is the number of objects primitives.
+    pub fn build(node_buf: []Node, primitives: []const Primitive, index_buf: []u32) !Bvh {
+        // We can never have more than 2N - 1 nodes, where N is the number of object primitives.
         var bvh: Bvh = .init(node_buf);
-        if (objects.len == 0) return bvh;
+        if (primitives.len == 0) return bvh;
 
-        if (index_buf.len < objects.len) return error.OutOfMemory;
+        if (index_buf.len < primitives.len) return error.OutOfMemory;
         for (0..index_buf.len) |idx| index_buf[idx] = @intCast(idx);
 
-        bvh.root = try bvh.buildRange(objects, index_buf, 0, objects.len, 0);
+        bvh.root = try bvh.buildRange(primitives, index_buf, 0, primitives.len, 0);
         return bvh;
     }
 
     /// Returns the bounding volume hierarchy.
     ///
     /// Nodes are stored in externally-managed memory, but initialized internally.
-    /// The length of the objects slice determines the tree capacity.
-    pub fn buildAllocating(gpa: Allocator, objects: []const Sphere) !Bvh {
-        // We can never have more than 2N - 1 nodes, where N is the number of objects primitives.
-        var bvh: Bvh = try .initCapacity(gpa, 2 * objects.len - 1);
+    /// The length of the primitives slice determines the tree capacity.
+    pub fn buildAllocating(gpa: Allocator, primitives: []const Primitive) !Bvh {
+        // We can never have more than 2N - 1 nodes, where N is the number of primitives primitives.
+        var bvh: Bvh = try .initCapacity(gpa, 2 * primitives.len - 1);
 
-        if (objects.len == 0) return bvh;
+        if (primitives.len == 0) return bvh;
 
-        var indices = try gpa.alloc(u32, objects.len);
+        var indices = try gpa.alloc(u32, primitives.len);
         defer gpa.free(indices);
 
         for (0..indices.len) |idx| indices[idx] = @intCast(idx);
@@ -73,7 +73,7 @@ pub const Bvh = struct {
         // std.debug.print("depth, (start, end), nodes:\n", .{});
         // std.debug.print("===========================\n", .{});
 
-        bvh.root = try bvh.buildRange(objects, indices, 0, objects.len, 0);
+        bvh.root = try bvh.buildRange(primitives, indices, 0, primitives.len, 0);
 
         // // Debug:
         // const nodes = bvh.nodes.list;
@@ -89,14 +89,14 @@ pub const Bvh = struct {
         return bvh;
     }
 
-    fn buildRange(self: *Bvh, objects: []const Sphere, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
+    fn buildRange(self: *Bvh, primitives: []const Primitive, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
         const span = end - start;
 
         // Append leaf.
         if (span == 1) {
             try self.nodes.list.appendBounded(.{
                 .data = indices[start],
-                .bbox = objects[indices[start]].bbox,
+                .bbox = primitives[indices[start]].bbox(),
                 .link = .{},
             });
 
@@ -106,25 +106,28 @@ pub const Bvh = struct {
             return &self.nodes.list.items[self.nodes.list.items.len - 1].link;
         }
 
-        // Build the bounding box for the span of all the source objects in this range.
+        // Build the bounding box for the span of all the source primitives in this range.
         var node_bbox: Aabb = .empty;
-        for (indices[start..end]) |idx| node_bbox = .fromEnclosedBoxes(node_bbox, objects[idx].bbox);
+        for (indices[start..end]) |idx| node_bbox = .fromEnclosedBoxes(
+            node_bbox,
+            primitives[idx].bbox(),
+        );
 
         // Split over the longest bounding box axis.
         const axis = node_bbox.longestAxis();
 
         // Sort slice of object array indices along the chosen axis.
-        const Context = struct { axis: usize, objects: []const Sphere };
+        const Context = struct { axis: usize, primitives: []const Primitive };
         std.mem.sort(
             u32,
             indices[start..end],
             Context{
                 .axis = axis,
-                .objects = objects,
+                .primitives = primitives,
             },
             struct {
                 fn lessThan(ctx: Context, a: u32, b: u32) bool {
-                    return ctx.objects[a].bbox.axisInterval(ctx.axis).min < ctx.objects[b].bbox.axisInterval(ctx.axis).min;
+                    return ctx.primitives[a].bbox().axisInterval(ctx.axis).min < ctx.primitives[b].bbox().axisInterval(ctx.axis).min;
                 }
             }.lessThan,
         );
@@ -133,10 +136,10 @@ pub const Bvh = struct {
         // std.debug.print("{d}, ({d}, {d}), {d}\n", .{ depth, start, end, nodes.items.len });
 
         const mid = start + span / 2;
-        const left_link = try self.buildRange(objects, indices, start, mid, depth + 1);
-        const right_link = try self.buildRange(objects, indices, mid, end, depth + 1);
+        const left_link = try self.buildRange(primitives, indices, start, mid, depth + 1);
+        const right_link = try self.buildRange(primitives, indices, mid, end, depth + 1);
 
-        // Append interal node.
+        // Append internal node.
         try self.nodes.list.appendBounded(.{
             .bbox = node_bbox,
             .link = .{ .left = left_link, .right = right_link },
@@ -148,29 +151,29 @@ pub const Bvh = struct {
         return &self.nodes.list.items[self.nodes.list.items.len - 1].link;
     }
 
-    pub fn hit(self: *Bvh, objects: []const Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
+    pub fn hit(self: *Bvh, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
         if (self.root == null) return null;
-        return hitNode(self.root.?, objects, ray, ray_interval);
+        return hitNode(self.root.?, primitives, ray, ray_interval);
     }
 };
 
-fn hitNode(link: *Link, objects: []const Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
+fn hitNode(link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
     const node_ptr: *Node = @fieldParentPtr("link", link);
 
     if (!node_ptr.bbox.hit(ray, ray_interval)) return null;
 
-    // Check if the ray hits the sphere.
-    if (node_ptr.data) |idx| return objects[idx].hit(ray, ray_interval);
+    // Check if the ray hits the primitive.
+    if (node_ptr.data) |idx| return primitives[idx].hit(ray, ray_interval);
 
     var closest_hit: ?HitRecord = null;
     var closest_so_far = ray_interval.max;
 
-    // Check if the ray intersects a node in the left or right subtrees.
+    // Check if the ray intersects a node in the left or right sub-trees.
     const link_fields = @typeInfo(Link).@"struct".fields;
     inline for (link_fields) |link_field| {
         const child_link: ?*Link = @field(link.*, link_field.name);
         if (child_link) |child| {
-            if (hitNode(child, objects, ray, .{ .min = ray_interval.min, .max = closest_so_far })) |hit| {
+            if (hitNode(child, primitives, ray, .{ .min = ray_interval.min, .max = closest_so_far })) |hit| {
                 closest_hit = hit;
                 closest_so_far = hit.t;
             }

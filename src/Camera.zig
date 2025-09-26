@@ -7,8 +7,8 @@ const Bvh = @import("bvh.zig").Bvh;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
+const Primitive = hittable.Primitive;
 const Ray = @import("Ray.zig");
-const Sphere = hittable.Sphere;
 const Texture = @import("texture.zig").Texture;
 const Vec3 = vec.Vec3;
 const Writer = std.Io.Writer;
@@ -37,6 +37,7 @@ _defocus_disk_v: Vec3, // Defocus disk vertical radius.
 const Camera = @This();
 
 const max_recursion_depth = 50;
+const default_focus_dist = 10;
 
 pub const default: Camera = .init(
     16.0 / 9.0,
@@ -47,7 +48,7 @@ pub const default: Camera = .init(
     vec.zero,
     Vec3{ 0, 1, 0 },
     0.6,
-    10,
+    default_focus_dist,
 );
 
 pub const checker: Camera = .init(
@@ -59,7 +60,7 @@ pub const checker: Camera = .init(
     vec.zero,
     Vec3{ 0, 1, 0 },
     0,
-    10,
+    default_focus_dist,
 );
 
 pub const earth: Camera = .init(
@@ -71,7 +72,19 @@ pub const earth: Camera = .init(
     vec.zero,
     Vec3{ 0, 1, 0 },
     0,
-    10,
+    default_focus_dist,
+);
+
+pub const quads: Camera = .init(
+    1.0,
+    400,
+    100,
+    80,
+    Point3{ 0, 0, 9 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
 );
 
 pub fn init(
@@ -143,7 +156,7 @@ pub fn init(
     };
 }
 
-pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, objects: []const Sphere, tex_buf: []const Texture) !void {
+pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) !void {
     var progress_buf: [1024]u8 = undefined;
     const progress_node = std.Progress.start(.{
         .draw_buffer = &progress_buf,
@@ -176,7 +189,7 @@ pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, objects: []const Spher
             self,
             @as(f64, @floatFromInt(row)),
             bvh,
-            objects,
+            primitives,
             tex_buf,
             image_buffer[row * self.image_width ..][0..self.image_width], // Extract the current scanline of pixels from the buffer.
             progress_node,
@@ -193,7 +206,7 @@ fn renderScanline(
     self: Camera,
     row_idx: f64,
     bvh: *Bvh,
-    objects: []const Sphere,
+    primitives: []const Primitive,
     tex_buf: []const Texture,
     scanline: [][3]u8,
     progress_node: std.Progress.Node,
@@ -204,7 +217,7 @@ fn renderScanline(
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.getRay(@floatFromInt(col_idx), row_idx);
-            pixel_colour += rayColour(ray, 0, bvh, objects, tex_buf);
+            pixel_colour += rayColour(ray, 0, bvh, primitives, tex_buf);
         }
         pixel_colour *= self._pixel_samples_scale;
 
@@ -250,21 +263,21 @@ fn defocusDiskSample(self: Camera) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(r: Ray, depth: comptime_int, bvh: *Bvh, objects: []const Sphere, tex_buf: []const Texture) Colour {
+fn rayColour(r: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
-    if (bvh.hit(objects, r, interval)) |hit| {
+    if (bvh.hit(primitives, r, interval)) |hit| {
         const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
         const attenuation: Colour = switch (hit.mat) {
             .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
             inline else => |m| m.albedo,
         };
-        return attenuation * rayColour(scattered, depth + 1, bvh, objects, tex_buf);
+        return attenuation * rayColour(scattered, depth + 1, bvh, primitives, tex_buf);
     }
 
-    // If the ray does not hit any of the objects in the scene, we compute the ray colour
+    // If the ray does not hit any of the primitives in the scene, we compute the ray colour
     // as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
     // This renders the sky.
     const unit_direction: Vec3 = vec.unit(r.direction);
