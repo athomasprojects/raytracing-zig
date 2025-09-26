@@ -18,7 +18,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img15.ppm";
+    const ppm_fname = "img16.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -40,13 +40,40 @@ pub fn main() !void {
         .{ .checker = .init(0.32, 0, 1) },
     };
 
-    try simpleLight(file_out, &checker_textures);
+    try cornellBox(file_out, &checker_textures);
+    // try simpleLight(file_out, &checker_textures);
     // try quads(file_out, &checker_textures);
     // try perlinSpheres(file_out, &checker_textures);
     // try earth(file_out, &checker_textures);
     // try bouncingSpheres(file_out, 490, &checker_textures);
     // try checkeredSpheres(file_out, &checker_textures);
     errdefer file.close();
+}
+
+fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+    const red: Material = .{ .lambertian = .fromAlbedo(.{ 0.65, 0.05, 0.05 }) };
+    const white: Material = .{ .lambertian = .fromAlbedo(.{ 0.73, 0.73, 0.73 }) };
+    const green: Material = .{ .lambertian = .fromAlbedo(.{ 0.12, 0.45, 0.15 }) };
+    const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 15, 15, 15 }) };
+
+    const prim_count = 6;
+    var prim_buf: [prim_count]Primitive = undefined;
+    var indices: [prim_count]u32 = undefined;
+    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+
+    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    try primitives.list.appendSliceBounded(&.{
+        .{ .quad = .init(Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, green) },
+        .{ .quad = .init(vec.zero, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, red) },
+        .{ .quad = .init(Point3{ 343, 554, 332 }, Vec3{ -130, 0, 0 }, Vec3{ 0, 0, -105 }, light) },
+        .{ .quad = .init(vec.zero, Vec3{ 555, 0, 0 }, Vec3{ 0, 0, 555 }, white) },
+        .{ .quad = .init(Point3{ 555, 555, 555 }, Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
+        .{ .quad = .init(Point3{ 0, 0, 555 }, Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, white) },
+    });
+    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    const cam: Camera = .cornell;
+    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }
 
 fn simpleLight(file_writer: *Writer, comptime tex_buf: []const Texture) !void {

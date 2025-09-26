@@ -106,6 +106,19 @@ pub const simple_light: Camera = .init(
     vec.zero,
 );
 
+pub const cornell: Camera = .init(
+    1.0,
+    600,
+    200,
+    40,
+    Point3{ 278, 278, -800 },
+    Vec3{ 278, 278, 0 },
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    vec.zero,
+);
+
 pub fn init(
     aspect_ratio: comptime_float,
     image_width: comptime_float,
