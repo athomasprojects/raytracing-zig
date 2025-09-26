@@ -3,7 +3,6 @@ const vec = @import("vec.zig");
 
 const Allocator = std.mem.Allocator;
 const Aabb = @import("AxisAlignedBoundingBox.zig");
-const BoundedList = @import("util.zig").BoundedList;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
 const Point3 = vec.Point3;
@@ -24,6 +23,7 @@ pub const Primitive = union(enum) {
     sphere: Sphere,
     quad: Quad,
     box: Box,
+    translate: Translation,
 
     pub fn hit(self: *const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
         return switch (self.*) {
@@ -35,6 +35,32 @@ pub const Primitive = union(enum) {
         return switch (self.*) {
             inline else => |prim| prim.bbox,
         };
+    }
+};
+
+pub const Translation = struct {
+    primitive: *const Primitive,
+    offset: Vec3,
+    bbox: Aabb,
+
+    pub fn init(primitive: *const Primitive, offset: Vec3) Translation {
+        return .{
+            .primitive = primitive,
+            .offset = offset,
+            .bbox = primitive.bbox().fromOffset(offset),
+        };
+    }
+
+    pub fn hit(self: Translation, ray: Ray, ray_interval: Interval) ?HitRecord {
+        // Move the ray backwards by the offset.
+        const offset_ray: Ray = .initMoving(ray.origin - self.offset, ray.direction, ray.time);
+
+        // Determine whether an intersection exists along the offset ray (and if so, where).
+        var offset_hit: ?HitRecord = self.primitive.hit(offset_ray, ray_interval) orelse return null;
+
+        // Move the intersection point forwards by the offset.
+        offset_hit.?.p += self.offset;
+        return offset_hit;
     }
 };
 

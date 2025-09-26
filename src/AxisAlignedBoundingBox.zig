@@ -47,6 +47,14 @@ pub fn fromEnclosedBoxes(box0: Aabb, box1: Aabb) Aabb {
     };
 }
 
+pub fn fromOffset(self: Aabb, offset: Vec3) Aabb {
+    return .{
+        .x = self.x.fromOffset(vec.x(offset)),
+        .y = self.y.fromOffset(vec.y(offset)),
+        .z = self.z.fromOffset(vec.z(offset)),
+    };
+}
+
 pub fn axisInterval(self: Aabb, n: usize) Interval {
     if (n == 1) return self.y;
     if (n == 2) return self.z;

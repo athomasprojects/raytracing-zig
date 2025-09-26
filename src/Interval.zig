@@ -44,3 +44,8 @@ pub fn expandBy(self: *Interval, delta: f64) void {
     self.min = self.min - padding;
     self.max = self.max + padding;
 }
+
+/// Returns the resulting interval of shifting the input interval's minimum and maximum by `offset`.
+pub fn fromOffset(self: Interval, offset: f64) Interval {
+    return .{ .min = self.min + offset, .max = self.max + offset };
+}
