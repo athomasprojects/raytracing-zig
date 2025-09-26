@@ -18,7 +18,7 @@ const Writer = std.Io.Writer;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img14.ppm";
+    const ppm_fname = "img15.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -40,12 +40,43 @@ pub fn main() !void {
         .{ .checker = .init(0.32, 0, 1) },
     };
 
-    try quads(file_out, &checker_textures);
+    try simpleLight(file_out, &checker_textures);
+    // try quads(file_out, &checker_textures);
     // try perlinSpheres(file_out, &checker_textures);
     // try earth(file_out, &checker_textures);
     // try bouncingSpheres(file_out, 490, &checker_textures);
     // try checkeredSpheres(file_out, &checker_textures);
     errdefer file.close();
+}
+
+fn simpleLight(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+    const perlin: Texture = .{ .noise = .init(4) };
+    const diffuse_light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 4, 4, 4 }) };
+
+    const prim_count = 4;
+    var prim_buf: [prim_count]Primitive = undefined;
+    var indices: [prim_count]u32 = undefined;
+    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+
+    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    try primitives.list.appendSliceBounded(&.{
+        .{ .sphere = .init(
+            Point3{ 0, -1000, 0 },
+            1000,
+            .{ .lambertian = .{ .tex = perlin } },
+        ) },
+        .{ .sphere = .init(
+            Point3{ 0, 2, 0 },
+            2,
+            .{ .lambertian = .{ .tex = perlin } },
+        ) },
+        .{ .sphere = .init(Point3{ 0, 7, 0 }, 2, diffuse_light) },
+        .{ .quad = .init(Point3{ 3, 1, -2 }, Vec3{ 2, 0, 0 }, Vec3{ 0, 2, 0 }, diffuse_light) },
+    });
+    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    const cam: Camera = .simple_light;
+    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
 }
 
 fn quads(file_writer: *Writer, comptime tex_buf: []const Texture) !void {

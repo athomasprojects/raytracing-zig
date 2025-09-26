@@ -23,6 +23,7 @@ look_at: Point3, // Point camera is looking from.
 v_up: Vec3, // Camera-relative "up" direction.
 defocus_angle_deg: comptime_float, // Variation angle (in degrees) of rays through each pixel.
 focus_dist: comptime_float, // Distance from camera `look_from` point to plane of perfect focus.
+background_colour: Colour,
 _image_height: comptime_int, // Rendered image height.
 _center: Point3, // Camera center.
 _pixel00_loc: Point3, // Location of pixel (0,0).
@@ -38,6 +39,7 @@ const Camera = @This();
 
 const max_recursion_depth = 50;
 const default_focus_dist = 10;
+const default_bg_colour: Colour = .{ 0.7, 0.8, 1 };
 
 pub const default: Camera = .init(
     16.0 / 9.0,
@@ -49,6 +51,7 @@ pub const default: Camera = .init(
     Vec3{ 0, 1, 0 },
     0.6,
     default_focus_dist,
+    default_bg_colour,
 );
 
 pub const checker: Camera = .init(
@@ -61,6 +64,7 @@ pub const checker: Camera = .init(
     Vec3{ 0, 1, 0 },
     0,
     default_focus_dist,
+    default_bg_colour,
 );
 
 pub const earth: Camera = .init(
@@ -73,6 +77,7 @@ pub const earth: Camera = .init(
     Vec3{ 0, 1, 0 },
     0,
     default_focus_dist,
+    default_bg_colour,
 );
 
 pub const quads: Camera = .init(
@@ -85,6 +90,20 @@ pub const quads: Camera = .init(
     Vec3{ 0, 1, 0 },
     0,
     default_focus_dist,
+    default_bg_colour,
+);
+
+pub const simple_light: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 23, 3, 6 },
+    Vec3{ 0, 2, 0 },
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    vec.zero,
 );
 
 pub fn init(
@@ -97,12 +116,12 @@ pub fn init(
     v_up: Vec3,
     defocus_angle_deg: comptime_float,
     focus_dist: comptime_float,
+    background_colour: Colour,
 ) Camera {
     if (aspect_ratio <= 0) @compileError("aspect ratio must be positive");
     if (image_width <= 0) @compileError("image_width must be positive");
 
     const image_height: comptime_int = @intFromFloat(image_width / aspect_ratio);
-    // const camera_center = look_from;
 
     // Determine viewport dimensions.
     const h = @tan(std.math.degreesToRadians(vertical_fov_deg) * 0.5);
@@ -153,6 +172,7 @@ pub fn init(
         .v_up = v_up,
         ._defocus_disk_u = defocus_disk_u,
         ._defocus_disk_v = defocus_disk_v,
+        .background_colour = background_colour,
     };
 }
 
@@ -217,7 +237,7 @@ fn renderScanline(
         var pixel_colour = vec.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.getRay(@floatFromInt(col_idx), row_idx);
-            pixel_colour += rayColour(ray, 0, bvh, primitives, tex_buf);
+            pixel_colour += self.rayColour(ray, 0, bvh, primitives, tex_buf);
         }
         pixel_colour *= self._pixel_samples_scale;
 
@@ -263,26 +283,26 @@ fn defocusDiskSample(self: Camera) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(r: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
+fn rayColour(self: Camera, r: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
     if (bvh.hit(primitives, r, interval)) |hit| {
-        const scattered = hit.mat.scatter(r, hit) orelse return vec.zero;
+        const colour_from_emission = hit.mat.emitted(hit.u, hit.v, hit.p, tex_buf);
+        const scattered_ray = hit.mat.scatter(r, hit) orelse return colour_from_emission;
+
         const attenuation: Colour = switch (hit.mat) {
             .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
+            .diffuse_light => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
             inline else => |m| m.albedo,
         };
-        return attenuation * rayColour(scattered, depth + 1, bvh, primitives, tex_buf);
+
+        const colour_from_scatter = attenuation * self.rayColour(scattered_ray, depth + 1, bvh, primitives, tex_buf);
+        return colour_from_emission + colour_from_scatter;
     }
 
-    // If the ray does not hit any of the primitives in the scene, we compute the ray colour
-    // as a linear interpolation (lerp) of the 'y' pixel value between white and blue.
-    // This renders the sky.
-    const unit_direction: Vec3 = vec.unit(r.direction);
-    const a: f64 = 0.5 * (vec.y(unit_direction) + 1.0);
-    return vec.scale(Colour{ 1, 1, 1 }, 1 - a) + vec.scale(Colour{ 0.5, 0.7, 1 }, a);
+    return self.background_colour;
 }
 
 /// Transforms `colour` from a linear colour space to a gamma space using the gamma 2 transform.

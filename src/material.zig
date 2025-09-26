@@ -2,6 +2,7 @@ const std = @import("std");
 const vec = @import("vec.zig");
 
 const Colour = vec.Colour;
+const Point3 = vec.Vec3;
 const Vec3 = vec.Vec3;
 const Ray = @import("Ray.zig");
 const Texture = @import("texture.zig").Texture;
@@ -80,9 +81,32 @@ pub const Material = union(enum) {
         }
     },
 
+    diffuse_light: struct {
+        tex: Texture,
+
+        pub fn fromEmittedColour(colour: Colour) @This() {
+            return .{ .tex = .{ .solid_colour = .init(colour) } };
+        }
+
+        // fn emitted(self: @This(), u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
+        //     return self.tex.value(u, v, p, tex_buf);
+        // }
+
+        fn scatter(_: @This(), _: Ray, _: HitRecord) ?Ray {
+            return null;
+        }
+    },
+
     pub fn scatter(self: Material, ray_in: Ray, hit: HitRecord) ?Ray {
         return switch (self) {
             inline else => |m| m.scatter(ray_in, hit),
+        };
+    }
+
+    pub fn emitted(self: Material, u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
+        return switch (self) {
+            .diffuse_light => |m| m.tex.value(u, v, p, tex_buf),
+            else => vec.zero,
         };
     }
 };
