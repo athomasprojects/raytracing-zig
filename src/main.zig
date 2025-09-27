@@ -4,6 +4,7 @@ const hittable = @import("hittable.zig");
 const vec = @import("vec.zig");
 
 const BoundedList = @import("util.zig").BoundedList;
+const Box = hittable.Box;
 const Bvh = bvh.Bvh;
 const BvhNode = bvh.Node;
 const Camera = @import("Camera.zig");
@@ -62,7 +63,7 @@ fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     var node_buf: [2 * prim_count - 1]BvhNode = undefined;
 
     var primitives: BoundedList(Primitive) = .init(&prim_buf);
-    const prims = [_]Primitive{
+    try primitives.list.appendSliceBounded(&.{
         .{ .quad = .init(Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, green) },
         .{ .quad = .init(vec.zero, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, red) },
         .{ .quad = .init(Point3{ 343, 554, 332 }, Vec3{ -130, 0, 0 }, Vec3{ 0, 0, -105 }, light) },
@@ -70,12 +71,14 @@ fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .quad = .init(Point3{ 555, 555, 555 }, Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
         .{ .quad = .init(Point3{ 0, 0, 555 }, Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, white) },
         .{ .translate = .init(
-            &.{ .box = .init(Point3{ 130, 0, 65 }, Vec3{ 295, 165, 230 }, white) },
+            &.{ .rotate = .init(&.{ .box = .init(vec.zero, Vec3{ 165, 330, 165 }, white) }, 15) },
             .{ 265, 0, 295 },
         ) },
-        // .{ .box = .init(Point3{ 265, 0, 295 }, Vec3{ 430, 330, 460 }, white) },
-    };
-    try primitives.list.appendSliceBounded(&prims);
+        .{ .translate = .init(
+            &.{ .rotate = .init(&.{ .box = .init(vec.zero, Vec3{ 165, 165, 165 }, white) }, -18) },
+            .{ 130, 0, 65 },
+        ) },
+    });
     var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
 
     const cam: Camera = .cornell;

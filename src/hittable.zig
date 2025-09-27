@@ -24,6 +24,7 @@ pub const Primitive = union(enum) {
     quad: Quad,
     box: Box,
     translate: Translation,
+    rotate: RotateY,
 
     pub fn hit(self: *const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
         return switch (self.*) {
@@ -53,14 +54,100 @@ pub const Translation = struct {
 
     pub fn hit(self: Translation, ray: Ray, ray_interval: Interval) ?HitRecord {
         // Move the ray backwards by the offset.
-        const offset_ray: Ray = .initMoving(ray.origin - self.offset, ray.direction, ray.time);
+        const offset_ray: Ray = .initMoving(
+            ray.origin - self.offset,
+            ray.direction,
+            ray.time,
+        );
 
         // Determine whether an intersection exists along the offset ray (and if so, where).
-        var offset_hit: ?HitRecord = self.primitive.hit(offset_ray, ray_interval) orelse return null;
+        var translated_hit: ?HitRecord = self.primitive.hit(offset_ray, ray_interval) orelse return null;
 
         // Move the intersection point forwards by the offset.
-        offset_hit.?.p += self.offset;
-        return offset_hit;
+        translated_hit.?.p += self.offset;
+        return translated_hit;
+    }
+};
+
+pub const RotateY = struct {
+    primitive: *const Primitive,
+    sin_theta: f64,
+    cos_theta: f64,
+    bbox: Aabb,
+
+    const CoordTransform = enum {
+        from_world_to_object_space,
+        from_object_to_world_space,
+    };
+
+    pub fn init(primitive: *const Primitive, angle_deg: f64) RotateY {
+        const radians: f64 = std.math.degreesToRadians(angle_deg);
+        const sin_theta = @sin(radians);
+        const cos_theta = @cos(radians);
+        const bbox = primitive.bbox(); // Bounding box of the unrotated primitive in world space.
+
+        var rotated_primitive: RotateY = .{
+            .primitive = primitive,
+            .cos_theta = cos_theta,
+            .sin_theta = sin_theta,
+            .bbox = bbox,
+        };
+
+        // Pre-compute corner offsets.
+        const corners_world_space: [8]Vec3 = .{
+            .{ bbox.x.min, bbox.y.min, bbox.z.min },
+            .{ bbox.x.max, bbox.y.min, bbox.z.min },
+            .{ bbox.x.min, bbox.y.max, bbox.z.min },
+            .{ bbox.x.max, bbox.y.max, bbox.z.min },
+            .{ bbox.x.min, bbox.y.min, bbox.z.max },
+            .{ bbox.x.max, bbox.y.min, bbox.z.max },
+            .{ bbox.x.min, bbox.y.max, bbox.z.max },
+            .{ bbox.x.max, bbox.y.max, bbox.z.max },
+        };
+
+        var min: Vec3 = vec.splat(vec.infinity);
+        var max: Vec3 = vec.splat(-vec.infinity);
+        for (corners_world_space) |corner| {
+            // Rotate around Y-axis.
+            const rotated_corner: Vec3 = rotated_primitive.coordTransform(corner, .from_object_to_world_space);
+            min = @min(min, rotated_corner);
+            max = @max(max, rotated_corner);
+        }
+
+        // Compute the rotated primitive's bounding box.
+        rotated_primitive.bbox = .fromPoints(min, max);
+        return rotated_primitive;
+    }
+
+    pub fn hit(self: RotateY, ray: Ray, ray_interval: Interval) ?HitRecord {
+        // Transform the ray from world space to object space.
+        const rotated_ray: Ray = .{
+            .origin = self.coordTransform(ray.origin, .from_world_to_object_space),
+            .direction = self.coordTransform(ray.direction, .from_world_to_object_space),
+            .time = ray.time,
+        };
+
+        var rotated_hit: ?HitRecord = self.primitive.hit(rotated_ray, ray_interval) orelse return null;
+
+        // Transform the intersection point from object space back to world space.
+        rotated_hit.?.p = self.coordTransform(rotated_hit.?.p, .from_object_to_world_space);
+        rotated_hit.?.normal = self.coordTransform(rotated_hit.?.normal, .from_object_to_world_space);
+        return rotated_hit;
+    }
+
+    fn coordTransform(self: RotateY, v: Vec3, tx: CoordTransform) Vec3 {
+        return switch (tx) {
+            .from_world_to_object_space => .{
+                self.cos_theta * vec.x(v) - self.sin_theta * vec.z(v),
+                vec.y(v),
+                self.sin_theta * vec.x(v) + self.cos_theta * vec.z(v),
+            },
+            .from_object_to_world_space => .{
+                self.cos_theta * vec.x(v) + self.sin_theta * vec.z(v),
+                vec.y(v),
+                -self.sin_theta * vec.x(v) + self.cos_theta * vec.z(v),
+            },
+        };
     }
 };
 
