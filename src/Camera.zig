@@ -35,9 +35,10 @@ _v: Vec3, // Camera frame basis vector.
 _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
 _defocus_disk_u: Vec3, // Defocus disk horizontal radius.
 _defocus_disk_v: Vec3, // Defocus disk vertical radius.
+max_recursion_depth: comptime_int = 50,
+
 const Camera = @This();
 
-const max_recursion_depth = 50;
 const default_focus_dist = 10;
 const default_bg_colour: Colour = .{ 0.7, 0.8, 1 };
 
@@ -296,22 +297,18 @@ fn defocusDiskSample(self: Camera) Point3 {
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
-fn rayColour(self: Camera, r: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
+fn rayColour(self: Camera, ray: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
     // If we've exceeded the ray bounce limit, no more light is gathered.
-    if (depth == max_recursion_depth) return vec.zero;
+    if (depth == self.max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
-    if (bvh.hit(primitives, r, interval)) |hit| {
-        const colour_from_emission = hit.material.emitted(hit.u, hit.v, hit.p, tex_buf);
-        const scattered_ray = hit.material.scatter(r, hit) orelse return colour_from_emission;
+    if (bvh.hit(primitives, ray, interval)) |hit| {
+        const colour_from_emission = hit.material.emittedColour(hit.u, hit.v, hit.p, tex_buf);
+        const scattered_ray = hit.material.scatter(ray, hit) orelse return colour_from_emission;
 
-        const attenuation: Colour = switch (hit.material) {
-            .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
-            .diffuse_light => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
-            inline else => |m| m.albedo,
-        };
+        const colour_from_scatter = hit.material.attenuation(hit, tex_buf) *
+            self.rayColour(scattered_ray, depth + 1, bvh, primitives, tex_buf);
 
-        const colour_from_scatter = attenuation * self.rayColour(scattered_ray, depth + 1, bvh, primitives, tex_buf);
         return colour_from_emission + colour_from_scatter;
     }
 

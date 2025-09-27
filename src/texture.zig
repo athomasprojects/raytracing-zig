@@ -77,6 +77,7 @@ pub const Texture = union(enum) {
         width: u32 = 0,
         height: u32 = 0,
         bytes_per_scanline: u32 = 0,
+        _retval_from_stbi_load: ?[*c]u8 = null,
 
         const bytes_per_pixel = 3;
         const Self = @This();
@@ -101,12 +102,15 @@ pub const Texture = union(enum) {
                 .height = height,
                 .bytes_per_scanline = bytes_per_scanline,
                 .data = @as([*]u8, @ptrCast(float_data_ptr))[0 .. height * bytes_per_scanline],
+                ._retval_from_stbi_load = float_data_ptr,
             };
         }
 
-        pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
-            gpa.free(self.data);
-            self.* = undefined;
+        pub fn deinit(self: *Self) void {
+            if (self._retval_from_stbi_load) |ptr| {
+                stb.stbi_image_free(ptr);
+                self.data = &.{};
+            }
         }
 
         pub fn value(self: Self, u: f64, v: f64, _: Point3, _: []const Texture) Colour {

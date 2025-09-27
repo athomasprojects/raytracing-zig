@@ -3,8 +3,10 @@ const vec = @import("vec.zig");
 
 const Allocator = std.mem.Allocator;
 const Aabb = @import("AxisAlignedBoundingBox.zig");
+const Colour = vec.Colour;
 const Interval = @import("Interval.zig");
 const Material = @import("material.zig").Material;
+const Texture = @import("texture.zig").Texture;
 const Point3 = vec.Point3;
 const Ray = @import("Ray.zig");
 const Vec3 = vec.Vec3;
@@ -25,6 +27,7 @@ pub const Primitive = union(enum) {
     box: Box,
     translate: Translation,
     rotate: RotateY,
+    constant_medium: ConstantMedium,
 
     pub fn hit(self: *const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
         return switch (self.*) {
@@ -156,7 +159,6 @@ pub const Sphere = struct {
     radius: f64,
     material: Material,
     bbox: Aabb,
-
     pub fn init(center: Point3, radius: f64, material: Material) Sphere {
         const r: Vec3 = vec.splat(radius);
         return .{
@@ -331,5 +333,57 @@ const Box = struct {
             }
         }
         return closest_hit;
+    }
+};
+
+const ConstantMedium = struct {
+    neg_inv_density: f64,
+    boundary: *const Primitive,
+    phase_function: Material,
+    bbox: Aabb,
+
+    pub fn fromTexture(boundary: *const Primitive, density: f64, tex: Texture) ConstantMedium {
+        return .{
+            .neg_inv_density = -1 / density,
+            .boundary = boundary,
+            .phase_function = .{ .isotropic = .{ .tex = tex } },
+            .bbox = boundary.bbox(),
+        };
+    }
+
+    pub fn fromAlbedo(boundary: *const Primitive, density: f64, albedo: Colour) ConstantMedium {
+        return .{
+            .neg_inv_density = -1 / density,
+            .boundary = boundary,
+            .phase_function = .{ .isotropic = .fromAlbedo(albedo) },
+            .bbox = boundary.bbox(),
+        };
+    }
+
+    pub fn hit(self: ConstantMedium, ray: Ray, ray_interval: Interval) ?HitRecord {
+        var entry_hit: HitRecord = self.boundary.hit(ray, .universe) orelse return null;
+        var exit_hit: HitRecord = self.boundary.hit(ray, .{ .min = entry_hit.t + 1e-4, .max = vec.infinity }) orelse return null;
+
+        if (entry_hit.t < ray_interval.min) entry_hit.t = ray_interval.min;
+        if (exit_hit.t > ray_interval.max) exit_hit.t = ray_interval.max;
+
+        if (entry_hit.t >= exit_hit.t) return null;
+        if (entry_hit.t < 0) entry_hit.t = 0;
+
+        const ray_length = vec.magnitude(ray.direction);
+        const dist_inside_boundary = (exit_hit.t - entry_hit.t) * ray_length;
+        const hit_dist = self.neg_inv_density * @log(vec.randomFloat());
+
+        if (hit_dist > dist_inside_boundary) return null;
+        const t = entry_hit.t + hit_dist / ray_length;
+        return HitRecord{
+            .t = t,
+            .p = ray.at(t),
+            .normal = .{ 1, 0, 0 }, // This is arbitrary.
+            .front_face = true, // Also arbitrary.
+            .u = 0,
+            .v = 0,
+            .material = self.phase_function,
+        };
     }
 };

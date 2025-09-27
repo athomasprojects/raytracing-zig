@@ -97,16 +97,37 @@ pub const Material = union(enum) {
         }
     },
 
+    isotropic: struct {
+        tex: Texture,
+
+        pub fn fromAlbedo(colour: Colour) @This() {
+            return .{ .tex = .{ .solid_colour = .init(colour) } };
+        }
+
+        fn scatter(_: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
+            return .initMoving(hit.p, vec.randomUnitVec(), ray_in.time);
+        }
+    },
+
     pub fn scatter(self: Material, ray_in: Ray, hit: HitRecord) ?Ray {
         return switch (self) {
             inline else => |m| m.scatter(ray_in, hit),
         };
     }
 
-    pub fn emitted(self: Material, u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
+    pub fn emittedColour(self: Material, u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
         return switch (self) {
             .diffuse_light => |m| m.tex.value(u, v, p, tex_buf),
             else => vec.zero,
+        };
+    }
+
+    pub fn attenuation(self: Material, hit: HitRecord, tex_buf: []const Texture) Colour {
+        return switch (self) {
+            .lambertian => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
+            .diffuse_light => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
+            .isotropic => |m| m.tex.value(hit.u, hit.v, hit.p, tex_buf),
+            inline else => |m| m.albedo,
         };
     }
 };
