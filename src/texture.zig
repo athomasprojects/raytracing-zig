@@ -1,33 +1,23 @@
-const std = @import("std");
-const vec = @import("vec.zig");
-
-const Colour = vec.Colour;
-const Point3 = vec.Point3;
-const Vec3 = vec.Vec3;
-
 const stb = @cImport({
     @cDefine("STBI_ONLY_JPEG", "");
     @cInclude("stb_image.h");
 });
 
-const StbError = error{
-    ImageLoadFailed,
+const StbError = error{ImageLoadFailed};
+
+const TextureTag = enum {
+    solid_colour,
+    checker,
+    image,
+    noise,
 };
 
-pub const Texture = union(enum) {
+pub const Texture = union(TextureTag) {
     solid_colour: struct {
         albedo: Colour,
 
-        pub inline fn init(albedo: Colour) @This() {
-            return .{ .albedo = albedo };
-        }
-
-        pub inline fn initRgb(red: f64, green: f64, blue: f64) @This() {
-            return .{ .albedo = .{ red, green, blue } };
-        }
-
-        inline fn value(self: @This(), _: f64, _: f64, _: Point3, _: []const Texture) Colour {
-            return self.albedo;
+        pub inline fn fromRgb(rgb: Colour) @This() {
+            return .{ .albedo = rgb };
         }
     },
 
@@ -44,18 +34,16 @@ pub const Texture = union(enum) {
             };
         }
 
-        // pub fn fromColours(gpa: std.mem.Allocator, scale: f64, c1: Colour, c2: Colour, tex_buf: std.ArrayListUnmanaged(Texture)) !@This() {
-        //     var textures = [_]Texture{
-        //         .{ .solid_colour = .{ .albedo = c1 } },
-        //         .{ .solid_colour = .{ .albedo = c2 } },
-        //     };
+        // pub fn fromColours(scale: f64, c1: Colour, c2: Colour, tex_buf: []Texture) !@This() {
+        //     const even_idx = tex_buf.items.len;
+        //     const odd_idx = even_idx + 1;
+        //     tex_buf[even_idx] = .{ .solid_colour = .{ .albedo = c1 } };
+        //     tex_buf[odd_idx] = .{ .solid_colour = .{ .albedo = c2 } };
         //
-        //     const offset = tex_buf.items.len;
-        //     try tex_buf.appendSlice(gpa, &textures);
         //     return .{
         //         .inv_scale = 1.0 / scale,
-        //         .even = offset,
-        //         .odd = offset + 1,
+        //         .even = even_idx,
+        //         .odd = even_idx + 1,
         //     };
         // }
 
@@ -77,10 +65,9 @@ pub const Texture = union(enum) {
         width: u32 = 0,
         height: u32 = 0,
         bytes_per_scanline: u32 = 0,
-        _retval_from_stbi_load: ?[*c]u8 = null,
 
-        const bytes_per_pixel = 3;
         const Self = @This();
+        const bytes_per_pixel = 3;
 
         pub fn init(pathname: [:0]const u8) !Self {
             var w: c_int = 0;
@@ -102,18 +89,15 @@ pub const Texture = union(enum) {
                 .height = height,
                 .bytes_per_scanline = bytes_per_scanline,
                 .data = @as([*]u8, @ptrCast(float_data_ptr))[0 .. height * bytes_per_scanline],
-                ._retval_from_stbi_load = float_data_ptr,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            if (self._retval_from_stbi_load) |ptr| {
-                stb.stbi_image_free(ptr);
-                self.data = &.{};
-            }
+            stb.stbi_image_free(self.data.ptr);
+            self.data = &.{};
         }
 
-        pub fn value(self: Self, u: f64, v: f64, _: Point3, _: []const Texture) Colour {
+        pub fn value(self: Self, u: f64, v: f64) Colour {
             // Clamp input texture coordinates to [0,1] x [1,0]
             const u_clamp = std.math.clamp(u, 0, 1);
             const v_clamp = 1.0 - std.math.clamp(v, 0, 1); // Flip image coordinates.
@@ -163,37 +147,37 @@ pub const Texture = union(enum) {
         const point_count: u32 = 256;
         const max_turbulence_depth = 10;
 
-        pub fn init(scale: f64) @This() {
+        pub fn init(rand: std.Random, scale: f64) @This() {
             var perlin: @This() = .{ .scale = scale };
 
             // Generate array of unit vectors with random translations.
             for (0..perlin.rand_unit_vecs.len) |i| {
-                perlin.rand_unit_vecs[i] = vec.unit(vec.randomVecInRange(-1, 1));
+                perlin.rand_unit_vecs[i] = vec.unit(vec.randomVecInRange(rand, -1, 1));
             }
 
             // Generate permutation arrays used to randomize indices in noise generation.
             const fields = @typeInfo(@This()).@"struct".fields;
-            inline for (fields[2..]) |field| perlinGeneratePermutation(&@field(perlin, field.name));
+            inline for (fields[2..]) |field| perlinGeneratePermutation(rand, &@field(perlin, field.name));
 
             return perlin;
         }
 
-        fn perlinGeneratePermutation(p: []u32) void {
+        fn perlinGeneratePermutation(rand: std.Random, p: []u32) void {
             for (0..p.len) |i| p[i] = @as(u32, @intCast(i));
-            permute(p);
+            permute(rand, p);
         }
 
-        fn permute(p: []u32) void {
+        fn permute(rand: std.Random, p: []u32) void {
             var i = point_count - 1;
             while (i > 0) : (i -= 1) {
-                const target = @as(u32, @intCast(vec.randomInt(0, i)));
+                const target = vec.randomInt(rand, u32, 0, i);
                 const tmp = p[i];
                 p[i] = p[target];
                 p[target] = tmp;
             }
         }
 
-        fn value(self: @This(), _: f64, _: f64, p: Point3, _: []const Texture) Colour {
+        fn value(self: @This(), p: Point3) Colour {
             return vec.splat(0.5 * (1 + @sin(self.scale * vec.z(p) + 10 * self.turbulence(p, 7))));
         }
 
@@ -278,7 +262,24 @@ pub const Texture = union(enum) {
 
     pub fn value(self: Texture, u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
         return switch (self) {
-            inline else => |tex| tex.value(u, v, p, tex_buf),
+            .solid_colour => |t| t.albedo,
+            .image => |img| img.value(u, v),
+            .noise => |noise| noise.value(p),
+            inline else => |t| t.value(u, v, p, tex_buf),
         };
     }
+
+    pub fn deinitImageTexture(self: *Texture) void {
+        switch (self.*) {
+            .image => |*img| img.deinit(),
+            inline else => @panic("Invalid Texture, expected tag '" ++ @tagName(TextureTag.image) ++ "'"),
+        }
+    }
 };
+
+const std = @import("std");
+
+const vec = @import("vec.zig");
+const Colour = vec.Colour;
+const Point3 = vec.Point3;
+const Vec3 = vec.Vec3;

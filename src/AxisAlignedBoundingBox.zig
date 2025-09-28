@@ -1,14 +1,8 @@
-const vec = @import("vec.zig");
-const Vec3 = vec.Vec3;
-const Point3 = vec.Point3;
-const Interval = @import("Interval.zig");
-const Ray = @import("Ray.zig");
+pub const Aabb = @This();
 
 x: Interval,
 y: Interval,
 z: Interval,
-
-const Aabb = @This();
 
 pub const empty: Aabb = .{
     .x = .empty,
@@ -28,7 +22,8 @@ pub fn fromPoints(a: Point3, b: Point3) Aabb {
             0...fields.len - 1 => {
                 var interval: Interval = if (a[idx] <= b[idx]) .{ .min = a[idx], .max = b[idx] } else .{ .min = b[idx], .max = a[idx] };
 
-                // Adjust bounding box so that no side is narrower than some delta, padding if necessary.
+                // Adjust bounding box so that no side is narrower
+                // than some delta, padding if necessary.
                 const delta = 0.0001;
                 if (interval.size() < delta) interval.expandBy(delta);
                 @field(bbox, field.name) = interval;
@@ -39,6 +34,7 @@ pub fn fromPoints(a: Point3, b: Point3) Aabb {
     return bbox;
 }
 
+/// Returns the bounding box containing both input bounding boxes.
 pub fn fromEnclosedBoxes(box0: Aabb, box1: Aabb) Aabb {
     return .{
         .x = .expandToInclude(box0.x, box1.x),
@@ -47,6 +43,8 @@ pub fn fromEnclosedBoxes(box0: Aabb, box1: Aabb) Aabb {
     };
 }
 
+/// Constructs a new bounding box by adding `offset` to the minima and maxima
+/// of the input bounding box's x, y, and z axis intervals.
 pub fn fromOffset(self: Aabb, offset: Vec3) Aabb {
     return .{
         .x = self.x.fromOffset(vec.x(offset)),
@@ -94,3 +92,9 @@ pub fn hit(self: Aabb, ray: Ray, ray_interval: Interval) bool {
 
     return true;
 }
+
+const Interval = @import("Interval.zig");
+const Ray = @import("Ray.zig");
+const vec = @import("vec.zig");
+const Vec3 = vec.Vec3;
+const Point3 = vec.Point3;

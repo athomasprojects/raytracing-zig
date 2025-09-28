@@ -1,22 +1,8 @@
-const std = @import("std");
-const bvh = @import("bvh.zig");
-const vec = @import("vec.zig");
-
-const BoundedList = @import("util.zig").BoundedList;
-const Bvh = bvh.Bvh;
-const BvhNode = bvh.Node;
-const Camera = @import("Camera.zig");
-const Colour = vec.Colour;
-const Material = @import("material.zig").Material;
-const Point3 = vec.Point3;
-const Primitive = @import("hittable.zig").Primitive;
-const Texture = @import("texture.zig").Texture;
-const Vec3 = vec.Vec3;
-const Writer = std.Io.Writer;
+const gpa = std.heap.smp_allocator;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "img20.ppm";
+    const ppm_fname = "final2.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -24,29 +10,153 @@ pub fn main() !void {
     defer file.close();
 
     // Get file writer interface.
-    var file_buffer: [4096]u8 = undefined;
+    var file_buffer: [32768]u8 = undefined;
     var file_writer = file.writer(&file_buffer);
     const file_out = &file_writer.interface;
 
+    const empty_tex_buf = comptime &[0]Texture{};
     const checker_textures = comptime [_]Texture{
         .{
-            .solid_colour = .initRgb(0.2, 0.3, 0.1),
+            .solid_colour = .fromRgb(Colour{ 0.2, 0.3, 0.1 }),
         },
         .{
-            .solid_colour = .initRgb(0.9, 0.9, 0.9),
+            .solid_colour = .fromRgb(Colour{ 0.9, 0.9, 0.9 }),
         },
         .{ .checker = .init(0.32, 0, 1) },
     };
 
-    try cornellSmoke(file_out, &checker_textures);
-    // try cornellBox(file_out, &checker_textures);
-    // try simpleLight(file_out, &checker_textures);
-    // try quads(file_out, &checker_textures);
-    // try perlinSpheres(file_out, &checker_textures);
-    // try earth(file_out, &checker_textures);
-    // try bouncingSpheres(file_out, 490, &checker_textures);
-    // try checkeredSpheres(file_out, &checker_textures);
+    const SceneType = enum {
+        final,
+        cornell_box,
+        cornell_smoke,
+        simple_light,
+        quads,
+        perlin_spheres,
+        earth,
+        bouncing_spheres,
+        checkered_spheres,
+    };
+
+    switch (SceneType.cornell_box) {
+        .final => try finalScene(file_out, empty_tex_buf),
+        .cornell_box => try cornellBox(file_out, empty_tex_buf),
+        .cornell_smoke => try cornellSmoke(file_out, empty_tex_buf),
+        .simple_light => try simpleLight(file_out, empty_tex_buf),
+        .quads => try quads(file_out, empty_tex_buf),
+        .perlin_spheres => try perlinSpheres(file_out, empty_tex_buf),
+        .earth => try earth(file_out, empty_tex_buf),
+        .checkered_spheres => try bouncingSpheres(file_out, 490, &checker_textures),
+        .bouncing_spheres => try checkeredSpheres(file_out, &checker_textures),
+    }
+
     errdefer file.close();
+}
+
+fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+    const rand = Camera.rand_state.random();
+
+    // Allocate all required memory for creating scene primitives up front.
+    const total_scene_prim_count = 1410;
+    const tiny_sphere_count = 1000;
+    var scene: BoundedList(Primitive) = try .initCapacity(gpa, total_scene_prim_count);
+    var cube_of_spheres_buf = try gpa.alloc(Primitive, 3 * tiny_sphere_count);
+    defer scene.deinit(gpa);
+    defer gpa.free(cube_of_spheres_buf);
+
+    // Materials
+    const ground: Material = .{ .lambertian = .fromAlbedo(.{ 0.48, 0.83, 0.53 }) };
+    const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 7, 7, 7 }) };
+    const dielectric: Material = .{ .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 } };
+
+    var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg") };
+    defer earth_texture.deinitImageTexture();
+
+    // Create scene floor blocks.
+    const boxes_per_side = 20;
+    for (0..boxes_per_side) |i| {
+        for (0..boxes_per_side) |j| {
+            const w = 100.0;
+            const x0 = @as(f64, @floatFromInt(i)) * w - 1000.0;
+            const z0 = @as(f64, @floatFromInt(j)) * w - 1000.0;
+
+            try scene.list.appendBounded(.{ .box = .init(
+                Point3{ x0, 0, z0 },
+                Point3{ x0 + w, vec.randomFloatInRange(rand, 1, 101), z0 + w },
+                ground,
+            ) });
+        }
+    }
+
+    // Large spheres.
+    const center: Point3 = .{ 400, 400, 200 };
+    const boundary: Primitive = .{ .sphere = .init(Point3{ 360, 150, 145 }, 70, dielectric) };
+    try scene.list.appendSliceBounded(&.{
+        .{ .quad = .init(
+            Point3{ 123, 554, 147 },
+            Vec3{ 300, 0, 0 },
+            Vec3{ 0, 0, 265 },
+            light,
+        ) },
+        .{ .sphere = .initMoving(
+            center,
+            center + Vec3{ 30, 0, 0 },
+            50,
+            .{ .lambertian = .fromAlbedo(.{ 0.7, 0.3, 0.1 }) },
+        ) },
+        .{ .sphere = .init(Point3{ 260, 150, 45 }, 50, dielectric) },
+        .{ .sphere = .init(
+            Point3{ 0, 150, 145 },
+            50,
+            .{ .metal = .{ .albedo = .{ 0.8, 0.8, 0.9 }, .fuzz = 1 } },
+        ) },
+        boundary,
+        .{ .constant_medium = .fromAlbedo(&boundary, 0.2, Colour{ 0.2, 0.4, 0.9 }) },
+        .{ .constant_medium = .fromAlbedo(
+            &.{ .sphere = .init(vec.zero, 5000, dielectric) },
+            0.0001,
+            Colour{ 1, 1, 1 },
+        ) },
+        .{ .sphere = .init(
+            Point3{ 400, 200, 400 },
+            100,
+            .{ .lambertian = .{ .tex = earth_texture } },
+        ) },
+        .{ .sphere = .init(
+            Point3{ 220, 280, 300 },
+            80,
+            .{ .lambertian = .{ .tex = .{ .noise = .init(rand, 0.2) } } },
+        ) },
+    });
+
+    // Cube of small spheres.
+    const white: Material = .{ .lambertian = .fromAlbedo(Colour{ 0.73, 0.73, 0.73 }) };
+    const translation_offset = 2 * tiny_sphere_count;
+    for (0..tiny_sphere_count) |i| {
+        const rot_idx = tiny_sphere_count + i;
+        const trans_idx = translation_offset + i;
+        cube_of_spheres_buf[i] = .{ .sphere = .init(vec.randomVecInRange(rand, 0, 165), 10, white) };
+        cube_of_spheres_buf[rot_idx] = .{ .rotate = .init(&cube_of_spheres_buf[i], 15) };
+        cube_of_spheres_buf[trans_idx] = .{ .translate = .init(&cube_of_spheres_buf[rot_idx], Vec3{ -100, 270, 395 }) };
+    }
+    try scene.list.appendSliceBounded(cube_of_spheres_buf[translation_offset..]);
+
+    {
+        // Construct scene BVH.
+        var scene_bvh: Bvh = try .buildAllocating(gpa, scene.list.items);
+        defer scene_bvh.deinit(gpa);
+
+        // Debug:
+        // std.debug.print("Total number of scene primitives: {d}\n", .{scene.list.items.len});
+        // std.debug.print("number of bvh nodes: {d}\n", .{bounding_volumes.nodes.list.items.len});
+
+        const cam: Camera = .final;
+        try cam.render(file_writer, &scene_bvh, scene.list.items, tex_buf);
+        errdefer {
+            scene_bvh.deinit(gpa);
+            scene.deinit(gpa);
+            earth_texture.deinitImageTexture();
+        }
+    }
 }
 
 fn cornellSmoke(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
@@ -125,7 +235,9 @@ fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
 }
 
 fn simpleLight(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const perlin: Texture = .{ .noise = .init(4) };
+    const rand = Camera.rand_state.random();
+
+    const perlin: Texture = .{ .noise = .init(rand, 4) };
     const diffuse_light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 4, 4, 4 }) };
 
     const prim_count = 4;
@@ -181,7 +293,9 @@ fn quads(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
 }
 
 fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const perlin: Texture = .{ .noise = .init(4) };
+    const rand = Camera.rand_state.random();
+
+    const perlin: Texture = .{ .noise = .init(rand, 4) };
     const prim_count = 2;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
@@ -208,13 +322,8 @@ fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void 
 }
 
 fn earth(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const gpa = std.heap.smp_allocator;
-
     var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg") };
-    defer switch (earth_texture) {
-        .image => |*img| img.deinit(gpa),
-        else => unreachable,
-    };
+    defer earth_texture.deinitImageTexture();
 
     const prim_count = 1;
     var prim_buf: [prim_count]Primitive = undefined;
@@ -264,7 +373,7 @@ fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !vo
 }
 
 fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime tex_buf: []const Texture) !void {
-    const gpa = std.heap.smp_allocator;
+    const rand = Camera.rand_state.random();
 
     var primitives: BoundedList(Primitive) = try .initCapacity(gpa, max_capacity);
     defer primitives.deinit(gpa);
@@ -280,11 +389,11 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
         for (0..22) |j| {
             const b: f64 = @as(f64, @floatFromInt(j)) - 11.0;
 
-            const choose_mat = vec.randomFloat();
+            const choose_mat = vec.randomFloat(rand);
             const center: Vec3 = .{
-                a + 0.9 * vec.randomFloat(),
+                a + 0.9 * vec.randomFloat(rand),
                 0.2,
-                b + 0.9 * vec.randomFloat(),
+                b + 0.9 * vec.randomFloat(rand),
             };
 
             const p: Vec3 = center - Point3{ 4, 0.2, 0 };
@@ -293,12 +402,12 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
                 if (choose_mat < 0.8) {
                     // Diffuse
                     material = .{
-                        .lambertian = .{ .tex = .{ .solid_colour = .{ .albedo = vec.randomVec() * vec.randomVec() } } },
+                        .lambertian = .{ .tex = .{ .solid_colour = .{ .albedo = vec.randomVec(rand) * vec.randomVec(rand) } } },
                     };
                     try primitives.list.appendBounded(
                         .{ .sphere = .initMoving(
                             center,
-                            center + Vec3{ 0, vec.randomFloatInRange(0, 0.5), 0 },
+                            center + Vec3{ 0, vec.randomFloatInRange(rand, 0, 0.5), 0 },
                             0.2,
                             material,
                         ) },
@@ -307,8 +416,8 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
                     // Metal
                     material = .{
                         .metal = .{
-                            .albedo = vec.randomVecInRange(0.5, 1),
-                            .fuzz = vec.randomFloatInRange(0, 0.5),
+                            .albedo = vec.randomVecInRange(rand, 0.5, 1),
+                            .fuzz = vec.randomFloatInRange(rand, 0, 0.5),
                         },
                     };
                     try primitives.list.appendBounded(.{ .sphere = .init(center, 0.2, material) });
@@ -332,7 +441,7 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
         .{ .sphere = .init(
             Point3{ -4, 1, 0 },
             1,
-            .{ .lambertian = .{ .tex = .{ .solid_colour = .initRgb(0.4, 0.2, 0.1) } } },
+            .{ .lambertian = .{ .tex = .{ .solid_colour = .fromRgb(Colour{ 0.4, 0.2, 0.1 }) } } },
         ) },
         .{ .sphere = .init(
             Point3{ 4, 1, 0 },
@@ -351,3 +460,19 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
         bounding_volumes.deinit(gpa);
     }
 }
+
+const std = @import("std");
+const Writer = std.Io.Writer;
+
+const BoundedList = @import("util.zig").BoundedList;
+const bvh = @import("bvh.zig");
+const Bvh = bvh.Bvh;
+const BvhNode = bvh.Node;
+const Camera = @import("Camera.zig");
+const Material = @import("material.zig").Material;
+const Primitive = @import("hittable.zig").Primitive;
+const Texture = @import("texture.zig").Texture;
+const vec = @import("vec.zig");
+const Colour = vec.Colour;
+const Point3 = vec.Point3;
+const Vec3 = vec.Vec3;

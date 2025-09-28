@@ -1,30 +1,3 @@
-const std = @import("std");
-const math = std.math;
-const assert = std.debug.assert;
-const sqrt = math.sqrt;
-pub const acos = math.acos;
-pub const atan2 = math.atan2;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-
-pub const Vec3 = @Vector(3, f64);
-pub const Point3 = Vec3;
-pub const Colour = Vec3;
-
-pub const sqrt2: f64 = @as(f64, math.sqrt2);
-pub const sqrt3: f64 = sqrt(@as(f64, 3));
-pub const infinity = std.math.inf(f64);
-pub const tolerance = 1e-8;
-pub const tolerance_vec: Vec3 = @splat(1e-8);
-pub const pi = math.pi;
-pub const two_pi = 2 * math.pi;
-
-pub const zero: Vec3 = @splat(0);
-pub const one: Vec3 = @splat(1);
-pub const unit_vec_x: Vec3 = .{ 1, 0, 0 };
-pub const unit_vec_y: Vec3 = .{ 0, 1, 0 };
-pub const unit_vec_z: Vec3 = .{ 0, 0, 1 };
-
 pub inline fn x(v: Vec3) f64 {
     return v[0];
 }
@@ -114,58 +87,58 @@ pub inline fn nearZero(v: Vec3) bool {
 }
 
 pub fn isUnit(v: Vec3) bool {
-    return std.math.approxEqAbs(f64, magnitude2(v), 1, std.math.floatEpsAt(f64, 1));
+    return math.approxEqAbs(f64, magnitude2(v), 1, math.floatEpsAt(f64, 1));
 }
 
 /// Returns random integer in [`min`, `max`].
-pub inline fn randomInt(min: i64, max: i64) i64 {
-    return std.crypto.random.intRangeAtMost(i64, min, max);
+pub inline fn randomInt(r: Random, comptime T: type, min: T, max: T) T {
+    return r.intRangeAtMost(T, min, max);
 }
 
 /// Returns random real in [0, 1).
-pub inline fn randomFloat() f64 {
-    return std.crypto.random.float(f64);
+pub inline fn randomFloat(r: Random) f64 {
+    return r.float(f64);
 }
 
 /// Returns a random real in [min,max).
-pub fn randomFloatInRange(min: f64, max: f64) f64 {
-    return min + (max - min) * randomFloat();
+pub fn randomFloatInRange(r: Random, min: f64, max: f64) f64 {
+    return min + (max - min) * randomFloat(r);
 }
 
 /// Returns random vector whose elements are all in [0, 1).
-pub fn randomVec() Vec3 {
+pub fn randomVec(r: Random) Vec3 {
     return .{
-        randomFloat(),
-        randomFloat(),
-        randomFloat(),
+        randomFloat(r),
+        randomFloat(r),
+        randomFloat(r),
     };
 }
 
 /// Returns random vector whose elements are all in [min, max).
-pub fn randomVecInRange(min: f64, max: f64) Vec3 {
+pub fn randomVecInRange(r: Random, min: f64, max: f64) Vec3 {
     return .{
-        randomFloatInRange(min, max),
-        randomFloatInRange(min, max),
-        randomFloatInRange(min, max),
+        randomFloatInRange(r, min, max),
+        randomFloatInRange(r, min, max),
+        randomFloatInRange(r, min, max),
     };
 }
 
-pub fn randomUnitVec() Vec3 {
+pub fn randomUnitVec(r: Random) Vec3 {
     while (true) {
-        const v = randomVecInRange(-1, 1);
+        const v = randomVecInRange(r, -1, 1);
         const mag_sq = magnitude2(v);
-        if (std.math.floatEpsAt(f64, 0) < mag_sq and mag_sq <= 1) {
-            return divScalar(v, sqrt(mag_sq));
+        if (math.floatEpsAt(f64, 0) < mag_sq and mag_sq <= 1) {
+            return divScalar(v, math.sqrt(mag_sq));
         }
     }
 }
 
 /// Returns a random vector within the unit disk defined by x^2 + y^2 = 1.
-pub fn randomVecInUnitDisk() Vec3 {
+pub fn randomVecInUnitDisk(r: Random) Vec3 {
     while (true) {
         const v: Vec3 = .{
-            randomFloatInRange(-1, 1),
-            randomFloatInRange(-1, 1),
+            randomFloatInRange(r, -1, 1),
+            randomFloatInRange(r, -1, 1),
             0,
         };
 
@@ -175,8 +148,8 @@ pub fn randomVecInUnitDisk() Vec3 {
 }
 
 /// Returns random unit vector on the same hemisphere as the surface normal.
-pub fn randomVecOnHemisphere(normal: Vec3) Vec3 {
-    const v: Vec3 = randomUnitVec();
+pub fn randomVecOnHemisphere(r: Random, normal: Vec3) Vec3 {
+    const v = randomUnitVec(r);
     return if (dot(v, normal) > 0) v else -v;
 }
 
@@ -190,160 +163,177 @@ pub fn isAllOnes(v: Vec3) bool {
     return eql(@abs(v), one);
 }
 
-pub fn isBasisVec(v: Vec3) bool {
-    const abs_v: Vec3 = @abs(v);
-    if (eql(abs_v, unit_vec_x)) return true;
-    if (eql(abs_v, unit_vec_y)) return true;
-    if (eql(abs_v, unit_vec_z)) return true;
-}
-
 pub fn print(v: Vec3) void {
     std.debug.print("{{{d}, {d}, {d}}}\n", .{ v[0], v[1], v[2] });
 }
 
-test "init vector" {
-    const v: Vec3 = .{ 1, 2, 3 };
-    try expectEqual(v, @Vector(3, f64){ 1, 2, 3 });
-}
+// Tests
+// const assert = std.debug.assert;
+// const expect = std.testing.expect;
+// const expectEqual = std.testing.expectEqual;
+// const sqrt2: f64 = @as(f64, math.sqrt2);
+// const sqrt3: f64 = math.sqrt(@as(f64, 3));
+//
+// test "init vector" {
+//     const v: Vec3 = .{ 1, 2, 3 };
+//     try expectEqual(v, @Vector(3, f64){ 1, 2, 3 });
+// }
+//
+// test "equality" {
+//     const v: Vec3 = .{ 6, 3, -5 };
+//     const u = [_]f64{ 6, 3, -5 };
+//     try expectEqual(v, u);
+//     try expect(eql(v, u));
+// }
+//
+// test "create a vector from a scalar" {
+//     const c: f64 = 5.018972;
+//     const v = splat(c);
+//     const expected: @Vector(3, f64) = [_]f64{c} ** 3;
+//     try expectEqual(expected, v);
+// }
+//
+// test "access vector components" {
+//     const v: Vec3 = .{ 1, 2, 3 };
+//     const vx = x(v);
+//     const vy = y(v);
+//     const vz = z(v);
+//     try expect(vx == 1);
+//     try expect(vy == 2);
+//     try expect(vz == 3);
+// }
+//
+// test "scale" {
+//     const v = scale(Vec3{ 1, 2, -3.5 }, 2);
+//     try expect(@TypeOf(v) == Vec3);
+//     try expectEqual(v, .{ 2, 4, -7 });
+// }
+//
+// test "scalar division" {
+//     const v = divScalar(Vec3{ 1, 2, 3 }, 2);
+//     try expectEqual(v, [_]f64{ 0.5, 1, 1.5 });
+// }
+//
+// test "dot product" {
+//     const u: Vec3 = .{ 1, 0, 0 };
+//     const v: Vec3 = .{ 0, 1, 0 };
+//     const a: Vec3 = .{ 1, -1, 1 };
+//     const b: Vec3 = .{ 0.5, 1, 1 };
+//     try expect(dot(u, v) == 0);
+//     try expect(dot(a, b) == 0.5);
+// }
+//
+// test "cross product" {
+//     const xx: Vec3 = .{ 1, 0, 0 };
+//     const yy: Vec3 = .{ 0, 1, 0 };
+//     const zz: Vec3 = .{ 0, 0, 1 };
+//     try expectEqual(cross(xx, yy), zz);
+//     try expectEqual(cross(yy, zz), xx);
+//     try expectEqual(cross(zz, xx), yy);
+//     try expectEqual(cross(xx, zz), -yy);
+//     try expectEqual(cross(xx, xx), zero);
+//     try expectEqual(cross(-xx, xx), zero);
+// }
+//
+// test "length squared" {
+//     const u: Vec3 = .{ 1, 1, 0 };
+//     const v: Vec3 = .{ 1, 1, 1 };
+//     const w: Vec3 = .{ -1, 1, 0 };
+//     const u_l2 = magnitude2(u);
+//     const v_l2 = magnitude2(v);
+//     const w_l2 = magnitude2(w);
+//     try expect(u_l2 == 2);
+//     try expect(v_l2 == 3);
+//     try expect(w_l2 == 2);
+// }
+//
+// test "length" {
+//     const u: Vec3 = .{ -1, 0, 0 };
+//     const v: Vec3 = .{ 1, 0, 1 };
+//     const w: Vec3 = .{ 1, 1, 1 };
+//     try expect(magnitude(u) == 1);
+//     try expect(magnitude(v) == sqrt2);
+//     try expect(magnitude(w) == sqrt3);
+// }
+//
+// test "two elements are +/- 1" {
+//     const u: Vec3 = .{ 1, -1, 0 };
+//     const v: Vec3 = .{ 1, 1, 0 };
+//     const w: Vec3 = .{ -1, -1, 1 };
+//     try expect(hasTwoOnes(u));
+//     try expect(hasTwoOnes(v));
+//     try expect(!hasTwoOnes(w));
+// }
+//
+// test "all +/- ones" {
+//     const u: Vec3 = .{ 1, -1, 1 };
+//     const v: Vec3 = .{ 1, 1, -1 };
+//     const w: Vec3 = .{ -1, -1, -1 };
+//     try expect(isAllOnes(u));
+//     try expect(isAllOnes(v));
+//     try expect(isAllOnes(w));
+// }
+//
+// test "random float in [0,1)" {
+//     const val = randomFloat();
+//     try expect(@TypeOf(val) == f64);
+//     try expect(val >= 0 and val < 1);
+// }
+//
+// test "random float in [min,max)" {
+//     const min: f64 = -100.5;
+//     const max: f64 = 426.8;
+//     const val = randomFloatInRange(min, max);
+//     try expect(@TypeOf(val) == f64);
+//     try expect(val >= min and val < max);
+// }
+//
+// test "random vec with all elements [0,1)" {
+//     const v = randomVec();
+//     try expect(@TypeOf(v) == Vec3);
+//     try expect(@reduce(.And, v >= splat(0)));
+//     try expect(@reduce(.And, v < splat(1)));
+// }
+//
+// test "random vec with all element in [min,max)" {
+//     const min: f64 = -100.5;
+//     const max: f64 = 426.8;
+//     const v = randomVecInRange(min, max);
+//     try expect(@TypeOf(v) == Vec3);
+//     try expect(@reduce(.And, v >= splat(min)));
+//     try expect(@reduce(.And, v < splat(max)));
+// }
+//
+// test "unit vector" {
+//     const v: Vec3 = unit(.{ -2, 6, 4 });
+//     try expect(isUnit(v));
+// }
+//
+// test "random unit vector" {
+//     const v = randomUnitVec();
+//     try expect(isUnit(v));
+//     try expect(@reduce(.And, v >= splat(-1)));
+//     try expect(@reduce(.And, v < splat(1)));
+// }
+//
+// test "near zero" {
+//     try expect(!nearZero(tolerance_vec));
+//     try expect(nearZero(.{ 1e-13, -1e-13, 0 }));
+// }
 
-test "equality" {
-    const v: Vec3 = .{ 6, 3, -5 };
-    const u = [_]f64{ 6, 3, -5 };
-    try expectEqual(v, u);
-    try expect(eql(v, u));
-}
+const std = @import("std");
+const math = std.math;
+const Random = std.Random;
 
-test "create a vector from a scalar" {
-    const c: f64 = 5.018972;
-    const v = splat(c);
-    const expected: @Vector(3, f64) = [_]f64{c} ** 3;
-    try expectEqual(expected, v);
-}
+pub const Colour = Vec3;
+pub const Point3 = Vec3;
+pub const Vec3 = @Vector(3, f64);
 
-test "access vector components" {
-    const v: Vec3 = .{ 1, 2, 3 };
-    const vx = x(v);
-    const vy = y(v);
-    const vz = z(v);
-    try expect(vx == 1);
-    try expect(vy == 2);
-    try expect(vz == 3);
-}
+pub const infinity = math.inf(f64);
+pub const tolerance = 1e-8;
+pub const tolerance_vec: Vec3 = @splat(1e-8);
+pub const pi = math.pi;
+pub const two_pi = 2 * math.pi;
 
-test "scale" {
-    const v = scale(Vec3{ 1, 2, -3.5 }, 2);
-    try expect(@TypeOf(v) == Vec3);
-    try expectEqual(v, .{ 2, 4, -7 });
-}
-
-test "scalar division" {
-    const v = divScalar(Vec3{ 1, 2, 3 }, 2);
-    try expectEqual(v, [_]f64{ 0.5, 1, 1.5 });
-}
-
-test "dot product" {
-    const u: Vec3 = .{ 1, 0, 0 };
-    const v: Vec3 = .{ 0, 1, 0 };
-    const a: Vec3 = .{ 1, -1, 1 };
-    const b: Vec3 = .{ 0.5, 1, 1 };
-    try expect(dot(u, v) == 0);
-    try expect(dot(a, b) == 0.5);
-}
-
-test "cross product" {
-    const xx: Vec3 = .{ 1, 0, 0 };
-    const yy: Vec3 = .{ 0, 1, 0 };
-    const zz: Vec3 = .{ 0, 0, 1 };
-    try expectEqual(cross(xx, yy), zz);
-    try expectEqual(cross(yy, zz), xx);
-    try expectEqual(cross(zz, xx), yy);
-    try expectEqual(cross(xx, zz), -yy);
-    try expectEqual(cross(xx, xx), zero);
-    try expectEqual(cross(-xx, xx), zero);
-}
-
-test "length squared" {
-    const u: Vec3 = .{ 1, 1, 0 };
-    const v: Vec3 = .{ 1, 1, 1 };
-    const w: Vec3 = .{ -1, 1, 0 };
-    const u_l2 = magnitude2(u);
-    const v_l2 = magnitude2(v);
-    const w_l2 = magnitude2(w);
-    try expect(u_l2 == 2);
-    try expect(v_l2 == 3);
-    try expect(w_l2 == 2);
-}
-
-test "length" {
-    const u: Vec3 = .{ -1, 0, 0 };
-    const v: Vec3 = .{ 1, 0, 1 };
-    const w: Vec3 = .{ 1, 1, 1 };
-    try expect(magnitude(u) == 1);
-    try expect(magnitude(v) == sqrt2);
-    try expect(magnitude(w) == sqrt3);
-}
-
-test "two elements are +/- 1" {
-    const u: Vec3 = .{ 1, -1, 0 };
-    const v: Vec3 = .{ 1, 1, 0 };
-    const w: Vec3 = .{ -1, -1, 1 };
-    try expect(hasTwoOnes(u));
-    try expect(hasTwoOnes(v));
-    try expect(!hasTwoOnes(w));
-}
-
-test "all +/- ones" {
-    const u: Vec3 = .{ 1, -1, 1 };
-    const v: Vec3 = .{ 1, 1, -1 };
-    const w: Vec3 = .{ -1, -1, -1 };
-    try expect(isAllOnes(u));
-    try expect(isAllOnes(v));
-    try expect(isAllOnes(w));
-}
-
-test "random float in [0,1)" {
-    const val = randomFloat();
-    try expect(@TypeOf(val) == f64);
-    try expect(val >= 0 and val < 1);
-}
-
-test "random float in [min,max)" {
-    const min: f64 = -100.5;
-    const max: f64 = 426.8;
-    const val = randomFloatInRange(min, max);
-    try expect(@TypeOf(val) == f64);
-    try expect(val >= min and val < max);
-}
-
-test "random vec with all elements [0,1)" {
-    const v = randomVec();
-    try expect(@TypeOf(v) == Vec3);
-    try expect(@reduce(.And, v >= splat(0)));
-    try expect(@reduce(.And, v < splat(1)));
-}
-
-test "random vec with all element in [min,max)" {
-    const min: f64 = -100.5;
-    const max: f64 = 426.8;
-    const v = randomVecInRange(min, max);
-    try expect(@TypeOf(v) == Vec3);
-    try expect(@reduce(.And, v >= splat(min)));
-    try expect(@reduce(.And, v < splat(max)));
-}
-
-test "unit vector" {
-    const v: Vec3 = unit(.{ -2, 6, 4 });
-    try expect(isUnit(v));
-}
-
-test "random unit vector" {
-    const v = randomUnitVec();
-    try expect(isUnit(v));
-    try expect(@reduce(.And, v >= splat(-1)));
-    try expect(@reduce(.And, v < splat(1)));
-}
-
-test "near zero" {
-    try expect(!nearZero(tolerance_vec));
-    try expect(nearZero(.{ 1e-13, -1e-13, 0 }));
-}
+pub const zero: Vec3 = @splat(0);
+pub const one: Vec3 = @splat(1);

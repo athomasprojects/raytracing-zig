@@ -1,13 +1,3 @@
-const std = @import("std");
-const vec = @import("vec.zig");
-
-const Colour = vec.Colour;
-const Point3 = vec.Vec3;
-const Vec3 = vec.Vec3;
-const Ray = @import("Ray.zig");
-const Texture = @import("texture.zig").Texture;
-const HitRecord = @import("hittable.zig").HitRecord;
-
 pub const Material = union(enum) {
     lambertian: struct {
         tex: Texture,
@@ -18,13 +8,13 @@ pub const Material = union(enum) {
             };
         }
 
-        fn scatter(_: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
-            var scatter_dir: Vec3 = hit.normal + vec.randomUnitVec();
+        fn scatter(_: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+            var scatter_direction: Vec3 = hit.normal + vec.randomUnitVec(rand);
 
             // Catch degenerate scatter direction.
-            if (vec.nearZero(scatter_dir)) scatter_dir = hit.normal;
+            if (vec.nearZero(scatter_direction)) scatter_direction = hit.normal;
 
-            return .initMoving(hit.p, scatter_dir, ray_in.time);
+            return .initMoving(hit.p, scatter_direction, ray_in.time);
         }
     },
 
@@ -39,8 +29,8 @@ pub const Material = union(enum) {
             };
         }
 
-        fn scatter(self: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
-            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.direction, hit.normal)) + vec.scale(vec.randomUnitVec(), self.fuzz);
+        fn scatter(self: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.direction, hit.normal)) + vec.scale(vec.randomUnitVec(rand), self.fuzz);
             return if (vec.dot(reflected, hit.normal) > 0) .initMoving(hit.p, reflected, ray_in.time) else null;
         }
     },
@@ -48,13 +38,14 @@ pub const Material = union(enum) {
     dielectric: struct {
         // zig fmt: off
         albedo: Colour,
-        refraction_index: f64, // Refractive index in vacuum or air, or the
-                               // ratio of the material's refractive index over
-                               // the refractive index of the enclosing media.
+        refraction_index: f64, // Refractive index in a vacuum or air. 
+                               // Otherwise, this value is the ratio of 
+                               // the material's refractive index over the 
+                               // refractive index of the enclosing media.
 
         // zig fmt: on
-        fn scatter(self: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
-            const ri = if (hit.front_face)
+        fn scatter(self: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+            const refraction_index = if (hit.front_face)
                 1 / self.refraction_index
             else
                 self.refraction_index;
@@ -63,13 +54,13 @@ pub const Material = union(enum) {
             const cos_theta = @min(vec.dot(-unit_direction, hit.normal), 1);
             const sin_theta = @sqrt(@abs(1 - cos_theta * cos_theta));
 
-            const cannot_refract = ri * sin_theta > 1;
-            const reflectance = reflectanceSchlick(cos_theta, ri);
+            const cannot_refract = refraction_index * sin_theta > 1;
+            const reflectance = reflectanceSchlick(cos_theta, refraction_index);
 
-            const direction = if (cannot_refract or reflectance > vec.randomFloat())
+            const direction = if (cannot_refract or reflectance > vec.randomFloat(rand))
                 vec.reflect(unit_direction, hit.normal) // reflect
             else
-                vec.refract(unit_direction, hit.normal, ri); // refract
+                vec.refract(unit_direction, hit.normal, refraction_index); // refract
 
             return .initMoving(hit.p, direction, ray_in.time);
         }
@@ -85,33 +76,34 @@ pub const Material = union(enum) {
         tex: Texture,
 
         pub fn fromEmittedColour(colour: Colour) @This() {
-            return .{ .tex = .{ .solid_colour = .init(colour) } };
-        }
-
-        // fn emitted(self: @This(), u: f64, v: f64, p: Point3, tex_buf: []const Texture) Colour {
-        //     return self.tex.value(u, v, p, tex_buf);
-        // }
-
-        fn scatter(_: @This(), _: Ray, _: HitRecord) ?Ray {
-            return null;
+            return .{
+                .tex = .{ .solid_colour = .{ .albedo = colour } },
+            };
         }
     },
 
     isotropic: struct {
         tex: Texture,
 
-        pub fn fromAlbedo(colour: Colour) @This() {
-            return .{ .tex = .{ .solid_colour = .init(colour) } };
+        pub fn fromAlbedo(albedo: Colour) @This() {
+            return .{
+                .tex = .{ .solid_colour = .{ .albedo = albedo } },
+            };
         }
 
-        fn scatter(_: @This(), ray_in: Ray, hit: HitRecord) ?Ray {
-            return .initMoving(hit.p, vec.randomUnitVec(), ray_in.time);
+        fn scatter(_: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+            return .{
+                .origin = hit.p,
+                .direction = vec.randomUnitVec(rand),
+                .time = ray_in.time,
+            };
         }
     },
 
-    pub fn scatter(self: Material, ray_in: Ray, hit: HitRecord) ?Ray {
+    pub fn scatter(self: Material, rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
         return switch (self) {
-            inline else => |m| m.scatter(ray_in, hit),
+            .diffuse_light => null,
+            inline else => |m| m.scatter(rand, ray_in, hit),
         };
     }
 
@@ -131,3 +123,13 @@ pub const Material = union(enum) {
         };
     }
 };
+
+const std = @import("std");
+
+const HitRecord = @import("hittable.zig").HitRecord;
+const Ray = @import("Ray.zig");
+const Texture = @import("texture.zig").Texture;
+const vec = @import("vec.zig");
+const Colour = vec.Colour;
+const Point3 = vec.Vec3;
+const Vec3 = vec.Vec3;

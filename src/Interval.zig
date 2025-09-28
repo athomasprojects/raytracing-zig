@@ -1,18 +1,16 @@
-const std = @import("std");
-const vec = @import("vec.zig");
+const Interval = @This();
 
 min: f64,
 max: f64,
-const Interval = @This();
 
 pub const empty: Interval = .{
-    .min = vec.infinity,
-    .max = -vec.infinity,
+    .min = infinity,
+    .max = -infinity,
 };
 
 pub const universe: Interval = .{
-    .min = -vec.infinity,
-    .max = vec.infinity,
+    .min = -infinity,
+    .max = infinity,
 };
 
 /// Creates the interval tightly enclosing the two input intervals.
@@ -35,10 +33,6 @@ pub fn surrounds(self: Interval, x: f64) bool {
     return self.min < x and x < self.max;
 }
 
-pub fn clamp(self: Interval, x: f64) f64 {
-    return std.math.clamp(x, self.min, self.max);
-}
-
 pub fn expandBy(self: *Interval, delta: f64) void {
     const padding = 0.5 * delta;
     self.min = self.min - padding;
@@ -49,3 +43,5 @@ pub fn expandBy(self: *Interval, delta: f64) void {
 pub fn fromOffset(self: Interval, offset: f64) Interval {
     return .{ .min = self.min + offset, .max = self.max + offset };
 }
+
+const infinity = @import("vec.zig").infinity;

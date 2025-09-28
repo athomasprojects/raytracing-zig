@@ -1,17 +1,9 @@
-const std = @import("std");
-const hittable = @import("hittable.zig");
-const vec = @import("vec.zig");
+const Camera = @This();
 
-const Colour = vec.Colour;
-const Bvh = @import("bvh.zig").Bvh;
-const Interval = @import("Interval.zig");
-const Material = @import("material.zig").Material;
-const Point3 = vec.Point3;
-const Primitive = hittable.Primitive;
-const Ray = @import("Ray.zig");
-const Texture = @import("texture.zig").Texture;
-const Vec3 = vec.Vec3;
-const Writer = std.Io.Writer;
+const default_focus_dist = 10;
+const default_bg_colour: Colour = .{ 0.7, 0.8, 1 };
+
+pub threadlocal var rand_state = std.Random.DefaultPrng.init(47);
 
 // Fields prefixed with `_` are for internal use only and should not be modified!
 aspect_ratio: comptime_float, // Ratio of the image width to image height.
@@ -36,89 +28,6 @@ _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
 _defocus_disk_u: Vec3, // Defocus disk horizontal radius.
 _defocus_disk_v: Vec3, // Defocus disk vertical radius.
 max_recursion_depth: comptime_int = 50,
-
-const Camera = @This();
-
-const default_focus_dist = 10;
-const default_bg_colour: Colour = .{ 0.7, 0.8, 1 };
-
-pub const default: Camera = .init(
-    16.0 / 9.0,
-    400,
-    100,
-    20,
-    Point3{ 13, 2, 3 },
-    vec.zero,
-    Vec3{ 0, 1, 0 },
-    0.6,
-    default_focus_dist,
-    default_bg_colour,
-);
-
-pub const checker: Camera = .init(
-    16.0 / 9.0,
-    400,
-    100,
-    20,
-    Point3{ 13, 2, 3 },
-    vec.zero,
-    Vec3{ 0, 1, 0 },
-    0,
-    default_focus_dist,
-    default_bg_colour,
-);
-
-pub const earth: Camera = .init(
-    16.0 / 9.0,
-    400,
-    100,
-    20,
-    Point3{ 0, 0, 12 },
-    vec.zero,
-    Vec3{ 0, 1, 0 },
-    0,
-    default_focus_dist,
-    default_bg_colour,
-);
-
-pub const quads: Camera = .init(
-    1.0,
-    400,
-    100,
-    80,
-    Point3{ 0, 0, 9 },
-    vec.zero,
-    Vec3{ 0, 1, 0 },
-    0,
-    default_focus_dist,
-    default_bg_colour,
-);
-
-pub const simple_light: Camera = .init(
-    16.0 / 9.0,
-    400,
-    100,
-    20,
-    Point3{ 23, 3, 6 },
-    Vec3{ 0, 2, 0 },
-    Vec3{ 0, 1, 0 },
-    0,
-    default_focus_dist,
-    vec.zero,
-);
-
-pub const cornell: Camera = .init(
-    1.0,
-    600,
-    200,
-    40,
-    Point3{ 278, 278, -800 },
-    Vec3{ 278, 278, 0 },
-    Vec3{ 0, 1, 0 },
-    0,
-    default_focus_dist,
-    vec.zero,
-);
 
 pub fn init(
     aspect_ratio: comptime_float,
@@ -232,7 +141,7 @@ pub fn render(self: Camera, file_out: *Writer, bvh: *Bvh, primitives: []const Pr
 
     pool.waitAndWork(&wg);
 
-    try file_out.writeSliceEndian(u8, std.mem.sliceAsBytes(image_buffer), .big);
+    try file_out.writeSliceEndian(u8, std.mem.sliceAsBytes(image_buffer), .little);
     try file_out.flush();
 }
 
@@ -257,12 +166,17 @@ fn renderScanline(
 
         // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
         const max = 255.999;
-        const r_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[0]));
-        const g_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[1]));
-        const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
+        // const r_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[0]));
+        // const g_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[1]));
+        // const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
 
         // Write pixel colour components to scanline buffer.
-        scanline[col_idx] = .{ r_byte, g_byte, b_byte };
+        // scanline[col_idx] = .{ r_byte, g_byte, b_byte };
+        scanline[col_idx] = .{
+            @intFromFloat(max * gamma2FromLinear(pixel_colour[0])), // r-byte
+            @intFromFloat(max * gamma2FromLinear(pixel_colour[1])), // g-byte
+            @intFromFloat(max * gamma2FromLinear(pixel_colour[2])), // b-byte
+        };
     }
 }
 
@@ -271,40 +185,46 @@ fn renderScanline(
 /// pixel `column` position and j is the pixel `row` position.
 fn getRay(self: Camera, column: f64, row: f64) Ray {
     @setFloatMode(.optimized);
+    const rand = rand_state.random();
+
     const offset: Vec3 = sampleSquare();
     const pixel_sample = self._pixel00_loc +
         self._pixel_delta_u * vec.splat(vec.x(offset) + column) +
         self._pixel_delta_v * vec.splat(vec.y(offset) + row);
     const ray_origin = if (self.defocus_angle_deg <= 0) self._center else self.defocusDiskSample();
-    const ray_time = vec.randomFloat();
+    const ray_time = vec.randomFloat(rand);
     return .initMoving(ray_origin, pixel_sample - ray_origin, ray_time);
 }
 
 /// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
 fn sampleSquare() Vec3 {
+    const rand = rand_state.random();
     return .{
-        vec.randomFloat() - 0.5,
-        vec.randomFloat() - 0.5,
+        vec.randomFloat(rand) - 0.5,
+        vec.randomFloat(rand) - 0.5,
         0,
     };
 }
 
 /// Returns a random point in the camera defocus disk.
 fn defocusDiskSample(self: Camera) Point3 {
-    const v = vec.randomVecInUnitDisk();
+    const rand = rand_state.random();
+    const v = vec.randomVecInUnitDisk(rand);
     return self._center +
         vec.scale(self._defocus_disk_u, vec.x(v)) +
         vec.scale(self._defocus_disk_v, vec.y(v));
 }
 
 fn rayColour(self: Camera, ray: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
+    const rand = rand_state.random();
+
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == self.max_recursion_depth) return vec.zero;
 
     const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
-    if (bvh.hit(primitives, ray, interval)) |hit| {
+    if (bvh.hit(rand, primitives, ray, interval)) |hit| {
         const colour_from_emission = hit.material.emittedColour(hit.u, hit.v, hit.p, tex_buf);
-        const scattered_ray = hit.material.scatter(ray, hit) orelse return colour_from_emission;
+        const scattered_ray = hit.material.scatter(rand, ray, hit) orelse return colour_from_emission;
 
         const colour_from_scatter = hit.material.attenuation(hit, tex_buf) *
             self.rayColour(scattered_ray, depth + 1, bvh, primitives, tex_buf);
@@ -319,3 +239,113 @@ fn rayColour(self: Camera, ray: Ray, depth: comptime_int, bvh: *Bvh, primitives:
 pub fn gamma2FromLinear(colour: f64) f64 {
     return if (colour > 0) @sqrt(colour) else 0;
 }
+
+pub const default: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 13, 2, 3 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0.6,
+    default_focus_dist,
+    default_bg_colour,
+);
+
+pub const checker: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 13, 2, 3 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    default_bg_colour,
+);
+
+pub const earth: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 0, 0, 12 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    default_bg_colour,
+);
+
+pub const quads: Camera = .init(
+    1.0,
+    400,
+    100,
+    80,
+    Point3{ 0, 0, 9 },
+    vec.zero,
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    default_bg_colour,
+);
+
+pub const simple_light: Camera = .init(
+    16.0 / 9.0,
+    400,
+    100,
+    20,
+    Point3{ 23, 3, 6 },
+    Vec3{ 0, 2, 0 },
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    vec.zero,
+);
+
+pub const cornell: Camera = .init(
+    1.0,
+    600,
+    200,
+    40,
+    Point3{ 278, 278, -800 },
+    Vec3{ 278, 278, 0 },
+    Vec3{ 0, 1, 0 },
+    0,
+    default_focus_dist,
+    vec.zero,
+);
+
+pub const final: Camera = blk: {
+    var c: Camera = .init(
+        1.0,
+        400,
+        500,
+        40,
+        Point3{ 478, 278, -600 },
+        Vec3{ 278, 278, 0 },
+        Vec3{ 0, 1, 0 },
+        0,
+        default_focus_dist,
+        vec.zero,
+    );
+    c.max_recursion_depth = 40;
+    break :blk c;
+};
+
+const std = @import("std");
+const Writer = std.Io.Writer;
+
+const Bvh = @import("bvh.zig").Bvh;
+const hittable = @import("hittable.zig");
+const Primitive = hittable.Primitive;
+const Interval = @import("Interval.zig");
+const Material = @import("material.zig").Material;
+const Ray = @import("Ray.zig");
+const Texture = @import("texture.zig").Texture;
+const vec = @import("vec.zig");
+const Colour = vec.Colour;
+const Point3 = vec.Point3;
+const Vec3 = vec.Vec3;

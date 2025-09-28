@@ -1,16 +1,3 @@
-const std = @import("std");
-const vec = @import("vec.zig");
-
-const Allocator = std.mem.Allocator;
-const Aabb = @import("AxisAlignedBoundingBox.zig");
-const Colour = vec.Colour;
-const Interval = @import("Interval.zig");
-const Material = @import("material.zig").Material;
-const Texture = @import("texture.zig").Texture;
-const Point3 = vec.Point3;
-const Ray = @import("Ray.zig");
-const Vec3 = vec.Vec3;
-
 pub const HitRecord = struct {
     t: f64,
     u: f64, // Normalized texture space coordinate. Azimuthal angle around the Y axis from X=-1, at the intersection point.
@@ -29,9 +16,12 @@ pub const Primitive = union(enum) {
     rotate: RotateY,
     constant_medium: ConstantMedium,
 
-    pub fn hit(self: *const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
+    pub fn hit(self: *const Primitive, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
         return switch (self.*) {
-            inline else => |prim| prim.hit(ray, ray_interval),
+            .sphere => |sphere| sphere.hit(ray, ray_interval),
+            .quad => |quad| quad.hit(ray, ray_interval),
+            .box => |box| box.hit(ray, ray_interval),
+            inline else => |prim| prim.hit(rand, ray, ray_interval),
         };
     }
 
@@ -42,119 +32,7 @@ pub const Primitive = union(enum) {
     }
 };
 
-pub const Translation = struct {
-    primitive: *const Primitive,
-    offset: Vec3,
-    bbox: Aabb,
-
-    pub fn init(primitive: *const Primitive, offset: Vec3) Translation {
-        return .{
-            .primitive = primitive,
-            .offset = offset,
-            .bbox = primitive.bbox().fromOffset(offset),
-        };
-    }
-
-    pub fn hit(self: Translation, ray: Ray, ray_interval: Interval) ?HitRecord {
-        // Move the ray backwards by the offset.
-        const offset_ray: Ray = .initMoving(
-            ray.origin - self.offset,
-            ray.direction,
-            ray.time,
-        );
-
-        // Determine whether an intersection exists along the offset ray (and if so, where).
-        var translated_hit: ?HitRecord = self.primitive.hit(offset_ray, ray_interval) orelse return null;
-
-        // Move the intersection point forwards by the offset.
-        translated_hit.?.p += self.offset;
-        return translated_hit;
-    }
-};
-
-pub const RotateY = struct {
-    primitive: *const Primitive,
-    sin_theta: f64,
-    cos_theta: f64,
-    bbox: Aabb,
-
-    const CoordTransform = enum {
-        from_world_to_object_space,
-        from_object_to_world_space,
-    };
-
-    pub fn init(primitive: *const Primitive, angle_deg: f64) RotateY {
-        const radians: f64 = std.math.degreesToRadians(angle_deg);
-        const sin_theta = @sin(radians);
-        const cos_theta = @cos(radians);
-        const bbox = primitive.bbox(); // Bounding box of the unrotated primitive in world space.
-
-        var rotated_primitive: RotateY = .{
-            .primitive = primitive,
-            .cos_theta = cos_theta,
-            .sin_theta = sin_theta,
-            .bbox = bbox,
-        };
-
-        // Pre-compute corner offsets.
-        const corners_world_space: [8]Vec3 = .{
-            .{ bbox.x.min, bbox.y.min, bbox.z.min },
-            .{ bbox.x.max, bbox.y.min, bbox.z.min },
-            .{ bbox.x.min, bbox.y.max, bbox.z.min },
-            .{ bbox.x.max, bbox.y.max, bbox.z.min },
-            .{ bbox.x.min, bbox.y.min, bbox.z.max },
-            .{ bbox.x.max, bbox.y.min, bbox.z.max },
-            .{ bbox.x.min, bbox.y.max, bbox.z.max },
-            .{ bbox.x.max, bbox.y.max, bbox.z.max },
-        };
-
-        var min: Vec3 = vec.splat(vec.infinity);
-        var max: Vec3 = vec.splat(-vec.infinity);
-        for (corners_world_space) |corner| {
-            // Rotate around Y-axis.
-            const rotated_corner: Vec3 = rotated_primitive.coordTransform(corner, .from_object_to_world_space);
-            min = @min(min, rotated_corner);
-            max = @max(max, rotated_corner);
-        }
-
-        // Compute the rotated primitive's bounding box.
-        rotated_primitive.bbox = .fromPoints(min, max);
-        return rotated_primitive;
-    }
-
-    pub fn hit(self: RotateY, ray: Ray, ray_interval: Interval) ?HitRecord {
-        // Transform the ray from world space to object space.
-        const rotated_ray: Ray = .{
-            .origin = self.coordTransform(ray.origin, .from_world_to_object_space),
-            .direction = self.coordTransform(ray.direction, .from_world_to_object_space),
-            .time = ray.time,
-        };
-
-        var rotated_hit: ?HitRecord = self.primitive.hit(rotated_ray, ray_interval) orelse return null;
-
-        // Transform the intersection point from object space back to world space.
-        rotated_hit.?.p = self.coordTransform(rotated_hit.?.p, .from_object_to_world_space);
-        rotated_hit.?.normal = self.coordTransform(rotated_hit.?.normal, .from_object_to_world_space);
-        return rotated_hit;
-    }
-
-    fn coordTransform(self: RotateY, v: Vec3, tx: CoordTransform) Vec3 {
-        return switch (tx) {
-            .from_world_to_object_space => .{
-                self.cos_theta * vec.x(v) - self.sin_theta * vec.z(v),
-                vec.y(v),
-                self.sin_theta * vec.x(v) + self.cos_theta * vec.z(v),
-            },
-            .from_object_to_world_space => .{
-                self.cos_theta * vec.x(v) + self.sin_theta * vec.z(v),
-                vec.y(v),
-                -self.sin_theta * vec.x(v) + self.cos_theta * vec.z(v),
-            },
-        };
-    }
-};
-
-pub const Sphere = struct {
+const Sphere = struct {
     center: Ray,
     radius: f64,
     material: Material,
@@ -186,7 +64,7 @@ pub const Sphere = struct {
         };
     }
 
-    pub fn hit(self: Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
+    fn hit(self: Sphere, ray: Ray, ray_interval: Interval) ?HitRecord {
         const current_center: Point3 = self.center.at(ray.time);
         const oc: Vec3 = current_center - ray.origin; // Vector from the ray origin to the center of the sphere.
         const a: f64 = vec.magnitude2(ray.direction);
@@ -201,7 +79,7 @@ pub const Sphere = struct {
         if (discriminant < 0) return null;
 
         // Find the nearest root that lies in the acceptable range.
-        const sqrtd = std.math.sqrt(discriminant);
+        const sqrtd = @sqrt(discriminant);
         var root = (h - sqrtd) / a;
 
         if (!ray_interval.surrounds(root)) {
@@ -216,8 +94,8 @@ pub const Sphere = struct {
         return .{
             .t = root,
             .p = p,
-            .u = (vec.atan2(-vec.z(outward_unit_normal), vec.x(outward_unit_normal)) + vec.pi) / vec.two_pi,
-            .v = vec.acos(-vec.y(outward_unit_normal)) / vec.pi,
+            .u = (std.math.atan2(-vec.z(outward_unit_normal), vec.x(outward_unit_normal)) + vec.pi) / vec.two_pi,
+            .v = std.math.acos(-vec.y(outward_unit_normal)) / vec.pi,
             .normal = if (front_face) outward_unit_normal else -outward_unit_normal,
             .front_face = front_face,
             .material = self.material,
@@ -225,7 +103,7 @@ pub const Sphere = struct {
     }
 };
 
-pub const Quad = struct {
+const Quad = struct {
     q: Point3, // Starting corner (vertex) of the quadrilateral.
     u: Vec3, // Vector representing the fist side of the quadrilateral.
     v: Vec3, // Vector representing the second side of the quadrilateral.
@@ -256,7 +134,7 @@ pub const Quad = struct {
         };
     }
 
-    pub fn hit(self: Quad, ray: Ray, ray_interval: Interval) ?HitRecord {
+    fn hit(self: Quad, ray: Ray, ray_interval: Interval) ?HitRecord {
         const denominator = vec.dot(self.unit_normal, ray.direction);
 
         // Return a miss if the ray is parallel to the plane.
@@ -336,6 +214,118 @@ const Box = struct {
     }
 };
 
+const Translation = struct {
+    primitive: *const Primitive,
+    offset: Vec3,
+    bbox: Aabb,
+
+    pub fn init(primitive: *const Primitive, offset: Vec3) Translation {
+        return .{
+            .primitive = primitive,
+            .offset = offset,
+            .bbox = primitive.bbox().fromOffset(offset),
+        };
+    }
+
+    fn hit(self: Translation, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+        // Move the ray backwards by the offset.
+        const offset_ray: Ray = .initMoving(
+            ray.origin - self.offset,
+            ray.direction,
+            ray.time,
+        );
+
+        // Determine whether an intersection exists along the offset ray (and if so, where).
+        var translated_hit: ?HitRecord = self.primitive.hit(rand, offset_ray, ray_interval) orelse return null;
+
+        // Move the intersection point forwards by the offset.
+        translated_hit.?.p += self.offset;
+        return translated_hit;
+    }
+};
+
+const RotateY = struct {
+    primitive: *const Primitive,
+    sin_theta: f64,
+    cos_theta: f64,
+    bbox: Aabb,
+
+    const CoordTransform = enum {
+        from_world_to_object_space,
+        from_object_to_world_space,
+    };
+
+    pub fn init(primitive: *const Primitive, angle_deg: f64) RotateY {
+        const radians: f64 = std.math.degreesToRadians(angle_deg);
+        const sin_theta = @sin(radians);
+        const cos_theta = @cos(radians);
+        const bbox = primitive.bbox(); // Bounding box of the non-rotated primitive in world space.
+
+        var rotated_primitive: RotateY = .{
+            .primitive = primitive,
+            .cos_theta = cos_theta,
+            .sin_theta = sin_theta,
+            .bbox = bbox,
+        };
+
+        // Pre-compute corner offsets.
+        const corners_world_space: [8]Vec3 = .{
+            .{ bbox.x.min, bbox.y.min, bbox.z.min },
+            .{ bbox.x.max, bbox.y.min, bbox.z.min },
+            .{ bbox.x.min, bbox.y.max, bbox.z.min },
+            .{ bbox.x.max, bbox.y.max, bbox.z.min },
+            .{ bbox.x.min, bbox.y.min, bbox.z.max },
+            .{ bbox.x.max, bbox.y.min, bbox.z.max },
+            .{ bbox.x.min, bbox.y.max, bbox.z.max },
+            .{ bbox.x.max, bbox.y.max, bbox.z.max },
+        };
+
+        var min: Vec3 = vec.splat(vec.infinity);
+        var max: Vec3 = vec.splat(-vec.infinity);
+        for (corners_world_space) |corner| {
+            // Rotate around Y-axis.
+            const rotated_corner: Vec3 = rotated_primitive.coordTransform(corner, .from_object_to_world_space);
+            min = @min(min, rotated_corner);
+            max = @max(max, rotated_corner);
+        }
+
+        // Compute the rotated primitive's bounding box.
+        rotated_primitive.bbox = .fromPoints(min, max);
+        return rotated_primitive;
+    }
+
+    fn hit(self: RotateY, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+        // Transform the ray from world space to object space.
+        const rotated_ray: Ray = .{
+            .origin = self.coordTransform(ray.origin, .from_world_to_object_space),
+            .direction = self.coordTransform(ray.direction, .from_world_to_object_space),
+            .time = ray.time,
+        };
+
+        var rotated_hit: ?HitRecord = self.primitive.hit(rand, rotated_ray, ray_interval) orelse return null;
+
+        // Transform the intersection point from object space back to world space.
+        rotated_hit.?.p = self.coordTransform(rotated_hit.?.p, .from_object_to_world_space);
+        rotated_hit.?.normal = self.coordTransform(rotated_hit.?.normal, .from_object_to_world_space);
+        return rotated_hit;
+    }
+
+    fn coordTransform(self: RotateY, v: Vec3, tx: CoordTransform) Vec3 {
+        return switch (tx) {
+            .from_world_to_object_space => .{
+                self.cos_theta * vec.x(v) - self.sin_theta * vec.z(v),
+                vec.y(v),
+                self.sin_theta * vec.x(v) + self.cos_theta * vec.z(v),
+            },
+            .from_object_to_world_space => .{
+                self.cos_theta * vec.x(v) + self.sin_theta * vec.z(v),
+                vec.y(v),
+                -self.sin_theta * vec.x(v) + self.cos_theta * vec.z(v),
+            },
+        };
+    }
+};
+
 const ConstantMedium = struct {
     neg_inv_density: f64,
     boundary: *const Primitive,
@@ -344,7 +334,7 @@ const ConstantMedium = struct {
 
     pub fn fromTexture(boundary: *const Primitive, density: f64, tex: Texture) ConstantMedium {
         return .{
-            .neg_inv_density = -1 / density,
+            .neg_inv_density = -1.0 / density,
             .boundary = boundary,
             .phase_function = .{ .isotropic = .{ .tex = tex } },
             .bbox = boundary.bbox(),
@@ -353,16 +343,16 @@ const ConstantMedium = struct {
 
     pub fn fromAlbedo(boundary: *const Primitive, density: f64, albedo: Colour) ConstantMedium {
         return .{
-            .neg_inv_density = -1 / density,
+            .neg_inv_density = -1.0 / density,
             .boundary = boundary,
             .phase_function = .{ .isotropic = .fromAlbedo(albedo) },
             .bbox = boundary.bbox(),
         };
     }
 
-    pub fn hit(self: ConstantMedium, ray: Ray, ray_interval: Interval) ?HitRecord {
-        var entry_hit: HitRecord = self.boundary.hit(ray, .universe) orelse return null;
-        var exit_hit: HitRecord = self.boundary.hit(ray, .{ .min = entry_hit.t + 1e-4, .max = vec.infinity }) orelse return null;
+    fn hit(self: ConstantMedium, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+        var entry_hit: HitRecord = self.boundary.hit(rand, ray, .universe) orelse return null;
+        var exit_hit: HitRecord = self.boundary.hit(rand, ray, .{ .min = entry_hit.t + 1e-4, .max = vec.infinity }) orelse return null;
 
         if (entry_hit.t < ray_interval.min) entry_hit.t = ray_interval.min;
         if (exit_hit.t > ray_interval.max) exit_hit.t = ray_interval.max;
@@ -372,18 +362,37 @@ const ConstantMedium = struct {
 
         const ray_length = vec.magnitude(ray.direction);
         const dist_inside_boundary = (exit_hit.t - entry_hit.t) * ray_length;
-        const hit_dist = self.neg_inv_density * @log(vec.randomFloat());
+        const hit_dist = self.neg_inv_density * @log(vec.randomFloat(rand));
 
         if (hit_dist > dist_inside_boundary) return null;
         const t = entry_hit.t + hit_dist / ray_length;
+
+        // Compute the u, v texture coordinates to an interpolation between the entry and exit hits.
+        const weight = (t - entry_hit.t) / (exit_hit.t - entry_hit.t);
+
         return HitRecord{
             .t = t,
             .p = ray.at(t),
             .normal = .{ 1, 0, 0 }, // This is arbitrary.
             .front_face = true, // Also arbitrary.
-            .u = 0,
-            .v = 0,
+            // .u = 0, // exit_hit.u,
+            // .v = 0, // exit_hit.v,
+            .u = entry_hit.u + weight * (exit_hit.u - entry_hit.u),
+            .v = entry_hit.v + weight * (exit_hit.v - entry_hit.v),
             .material = self.phase_function,
         };
     }
 };
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Aabb = @import("AxisAlignedBoundingBox.zig");
+const Interval = @import("Interval.zig");
+const Material = @import("material.zig").Material;
+const Ray = @import("Ray.zig");
+const Texture = @import("texture.zig").Texture;
+const vec = @import("vec.zig");
+const Colour = vec.Colour;
+const Point3 = vec.Point3;
+const Vec3 = vec.Vec3;

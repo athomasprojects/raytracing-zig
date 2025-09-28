@@ -1,14 +1,3 @@
-const std = @import("std");
-const hittable = @import("hittable.zig");
-
-const Aabb = @import("AxisAlignedBoundingBox.zig");
-const Allocator = std.mem.Allocator;
-const BoundedList = @import("util.zig").BoundedList;
-const HitRecord = hittable.HitRecord;
-const Interval = @import("Interval.zig");
-const Primitive = hittable.Primitive;
-const Ray = @import("Ray.zig");
-
 const Link = struct {
     left: ?*Link = null,
     right: ?*Link = null,
@@ -23,6 +12,9 @@ pub const Node = struct {
 pub const Bvh = struct {
     nodes: BoundedList(Node),
     root: ?*Link = null,
+
+    // Debug:
+    // var max_bvh_depth: u32 = 0;
 
     pub fn init(buf: []Node) Bvh {
         return .{ .nodes = .init(buf) };
@@ -69,13 +61,13 @@ pub const Bvh = struct {
 
         for (0..indices.len) |idx| indices[idx] = @intCast(idx);
 
-        // // Debug: Visualize tree traversal during formation.
+        // Debug: Visualize tree traversal during formation.
         // std.debug.print("depth, (start, end), nodes:\n", .{});
         // std.debug.print("===========================\n", .{});
 
         bvh.root = try bvh.buildRange(primitives, indices, 0, primitives.len, 0);
 
-        // // Debug:
+        // Debug:
         // const nodes = bvh.nodes.list;
         // var leaves: u32 = 0;
         // for (nodes.items) |node| {
@@ -85,11 +77,16 @@ pub const Bvh = struct {
         // }
         // std.debug.print("\nTotal nodes: {d}\n", .{nodes.items.len});
         // std.debug.print("Total leaves: {d}\n", .{leaves});
+        // std.debug.print("Total internal nodes: {d}\n", .{nodes.items.len - leaves - 1});
+        // std.debug.print("Max BVH depth: {d}\n", .{max_bvh_depth});
 
         return bvh;
     }
 
     fn buildRange(self: *Bvh, primitives: []const Primitive, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
+        // Debug:
+        // max_bvh_depth = @max(max_bvh_depth, depth);
+
         const span = end - start;
 
         // Append leaf.
@@ -100,8 +97,8 @@ pub const Bvh = struct {
                 .link = .{},
             });
 
-            // // Debug:
-            // std.debug.print("leaf index {d}! ==> {d}, ({d}, {d}), {d}\n", .{ indices[start], depth, start, end, nodes.items.len });
+            // Debug:
+            // std.debug.print("leaf index {d}! ==> {d}, ({d}, {d}), {d}\n", .{ indices[start], depth, start, end, self.nodes.list.items.len });
 
             return &self.nodes.list.items[self.nodes.list.items.len - 1].link;
         }
@@ -132,8 +129,8 @@ pub const Bvh = struct {
             }.lessThan,
         );
 
-        // // Debug:
-        // std.debug.print("{d}, ({d}, {d}), {d}\n", .{ depth, start, end, nodes.items.len });
+        // Debug:
+        // std.debug.print("{d}, ({d}, {d}), {d}\n", .{ depth, start, end, self.nodes.list.items.len });
 
         const mid = start + span / 2;
         const left_link = try self.buildRange(primitives, indices, start, mid, depth + 1);
@@ -145,25 +142,25 @@ pub const Bvh = struct {
             .link = .{ .left = left_link, .right = right_link },
         });
 
-        // // Debug:
-        // std.debug.print("internal node => {d}, ({d}, {d}), {d}\n", .{ depth, start, end, nodes.items.len });
+        // Debug:
+        // std.debug.print("internal node => {d}, ({d}, {d}), {d}\n", .{ depth, start, end, self.nodes.list.items.len });
 
         return &self.nodes.list.items[self.nodes.list.items.len - 1].link;
     }
 
-    pub fn hit(self: *Bvh, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
+    pub fn hit(self: *Bvh, rand: std.Random, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
         if (self.root == null) return null;
-        return hitNode(self.root.?, primitives, ray, ray_interval);
+        return hitNode(rand, self.root.?, primitives, ray, ray_interval);
     }
 };
 
-fn hitNode(link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
+fn hitNode(rand: std.Random, link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
     const node_ptr: *Node = @fieldParentPtr("link", link);
 
     if (!node_ptr.bbox.hit(ray, ray_interval)) return null;
 
     // Check if the ray hits the primitive.
-    if (node_ptr.data) |idx| return primitives[idx].hit(ray, ray_interval);
+    if (node_ptr.data) |idx| return primitives[idx].hit(rand, ray, ray_interval);
 
     var closest_hit: ?HitRecord = null;
     var closest_so_far = ray_interval.max;
@@ -173,7 +170,7 @@ fn hitNode(link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: I
     inline for (link_fields) |link_field| {
         const child_link: ?*Link = @field(link.*, link_field.name);
         if (child_link) |child| {
-            if (hitNode(child, primitives, ray, .{ .min = ray_interval.min, .max = closest_so_far })) |hit| {
+            if (hitNode(rand, child, primitives, ray, .{ .min = ray_interval.min, .max = closest_so_far })) |hit| {
                 closest_hit = hit;
                 closest_so_far = hit.t;
             }
@@ -181,3 +178,14 @@ fn hitNode(link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: I
     }
     return closest_hit;
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Aabb = @import("AxisAlignedBoundingBox.zig");
+const BoundedList = @import("util.zig").BoundedList;
+const hittable = @import("hittable.zig");
+const HitRecord = hittable.HitRecord;
+const Primitive = hittable.Primitive;
+const Interval = @import("Interval.zig");
+const Ray = @import("Ray.zig");
