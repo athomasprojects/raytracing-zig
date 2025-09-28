@@ -2,7 +2,7 @@ const gpa = std.heap.smp_allocator;
 
 pub fn main() !void {
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "final2.ppm";
+    const ppm_fname = "final_high_res.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
@@ -37,7 +37,7 @@ pub fn main() !void {
         checkered_spheres,
     };
 
-    switch (SceneType.cornell_box) {
+    switch (SceneType.final) {
         .final => try finalScene(file_out, empty_tex_buf),
         .cornell_box => try cornellBox(file_out, empty_tex_buf),
         .cornell_smoke => try cornellSmoke(file_out, empty_tex_buf),
@@ -52,7 +52,7 @@ pub fn main() !void {
     errdefer file.close();
 }
 
-fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+fn finalScene(_: *Writer, comptime _: []const Texture) !void {
     const rand = Camera.rand_state.random();
 
     // Allocate all required memory for creating scene primitives up front.
@@ -141,20 +141,16 @@ fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     try scene.list.appendSliceBounded(cube_of_spheres_buf[translation_offset..]);
 
     {
-        // Construct scene BVH.
         var scene_bvh: Bvh = try .buildAllocating(gpa, scene.list.items);
         defer scene_bvh.deinit(gpa);
 
-        // Debug:
-        // std.debug.print("Total number of scene primitives: {d}\n", .{scene.list.items.len});
-        // std.debug.print("number of bvh nodes: {d}\n", .{bounding_volumes.nodes.list.items.len});
-
-        const cam: Camera = .final;
-        try cam.render(file_writer, &scene_bvh, scene.list.items, tex_buf);
+        // const cam: Camera = .final;
+        // try cam.render(file_writer, &scene_bvh, scene.list.items, tex_buf);
         errdefer {
             scene_bvh.deinit(gpa);
             scene.deinit(gpa);
             earth_texture.deinitImageTexture();
+            gpa.free(cube_of_spheres_buf);
         }
     }
 }
@@ -453,7 +449,7 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
     var bounding_volumes: Bvh = try .buildAllocating(gpa, primitives.list.items);
     defer bounding_volumes.deinit(gpa);
 
-    const cam: Camera = .default;
+    const cam: Camera = .bouncing_spheres;
     try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
     errdefer {
         primitives.deinit(gpa);

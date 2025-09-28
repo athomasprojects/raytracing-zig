@@ -1,11 +1,13 @@
 const Camera = @This();
 
+pub threadlocal var rand_state = std.Random.DefaultPrng.init(47);
+
 const default_focus_dist = 10;
 const default_bg_colour: Colour = .{ 0.7, 0.8, 1 };
 
-pub threadlocal var rand_state = std.Random.DefaultPrng.init(47);
+// Fields prefixed with `_` are for internal use,
+// they should not be modified externally!
 
-// Fields prefixed with `_` are for internal use only and should not be modified!
 aspect_ratio: comptime_float, // Ratio of the image width to image height.
 image_width: comptime_int, // Rendered image width in pixel count.
 samples_per_pixel: comptime_int, // Count of random samples for each pixel.
@@ -164,14 +166,9 @@ fn renderScanline(
         }
         pixel_colour *= self._pixel_samples_scale;
 
-        // Translate the [0,1] pixel rgb colour component values to the byte range [0,255].
+        // Translate the [0,1] pixel rgb colour component values to the byte
+        // range [0,255], and Write pixel colour components to scanline buffer.
         const max = 255.999;
-        // const r_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[0]));
-        // const g_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[1]));
-        // const b_byte: u8 = @intFromFloat(max * gamma2FromLinear(pixel_colour[2]));
-
-        // Write pixel colour components to scanline buffer.
-        // scanline[col_idx] = .{ r_byte, g_byte, b_byte };
         scanline[col_idx] = .{
             @intFromFloat(max * gamma2FromLinear(pixel_colour[0])), // r-byte
             @intFromFloat(max * gamma2FromLinear(pixel_colour[1])), // g-byte
@@ -196,7 +193,7 @@ fn getRay(self: Camera, column: f64, row: f64) Ray {
     return .initMoving(ray_origin, pixel_sample - ray_origin, ray_time);
 }
 
-/// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
+/// Returns the vector to a random point in the [-0.5,-0.5]-[+0.5,+0.5] unit square.
 fn sampleSquare() Vec3 {
     const rand = rand_state.random();
     return .{
@@ -216,12 +213,17 @@ fn defocusDiskSample(self: Camera) Point3 {
 }
 
 fn rayColour(self: Camera, ray: Ray, depth: comptime_int, bvh: *Bvh, primitives: []const Primitive, tex_buf: []const Texture) Colour {
+    @setFloatMode(.optimized);
     const rand = rand_state.random();
 
     // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth == self.max_recursion_depth) return vec.zero;
 
-    const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
+    const interval: Interval = .{
+        .min = 0.001,
+        .max = vec.infinity,
+    };
+
     if (bvh.hit(rand, primitives, ray, interval)) |hit| {
         const colour_from_emission = hit.material.emittedColour(hit.u, hit.v, hit.p, tex_buf);
         const scattered_ray = hit.material.scatter(rand, ray, hit) orelse return colour_from_emission;
@@ -235,12 +237,12 @@ fn rayColour(self: Camera, ray: Ray, depth: comptime_int, bvh: *Bvh, primitives:
     return self.background_colour;
 }
 
-/// Transforms `colour` from a linear colour space to a gamma space using the gamma 2 transform.
+/// Transforms `colour` from a linear to gamma colour space using the gamma 2 transform.
 pub fn gamma2FromLinear(colour: f64) f64 {
     return if (colour > 0) @sqrt(colour) else 0;
 }
 
-pub const default: Camera = .init(
+pub const bouncing_spheres: Camera = .init(
     16.0 / 9.0,
     400,
     100,
@@ -321,8 +323,8 @@ pub const cornell: Camera = .init(
 pub const final: Camera = blk: {
     var c: Camera = .init(
         1.0,
-        400,
         500,
+        3000,
         40,
         Point3{ 478, 278, -600 },
         Vec3{ 278, 278, 0 },

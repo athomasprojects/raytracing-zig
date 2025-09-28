@@ -14,13 +14,17 @@ pub const Bvh = struct {
     root: ?*Link = null,
 
     // Debug:
-    // var max_bvh_depth: u32 = 0;
+    // const DbgStats = struct {
+    //     max_depth: u32 = 0,
+    //     total_depth: u32 = 0,
+    // };
+    // var dbg_stats: DbgStats = .{};
 
-    pub fn init(buf: []Node) Bvh {
+    fn initBuffer(buf: []Node) Bvh {
         return .{ .nodes = .init(buf) };
     }
 
-    pub fn initCapacity(gpa: Allocator, capacity: usize) !Bvh {
+    fn initCapacity(gpa: Allocator, capacity: usize) !Bvh {
         return .{
             .nodes = try .initCapacity(gpa, capacity),
         };
@@ -36,7 +40,7 @@ pub const Bvh = struct {
     /// indices are stored in externally initialized and managed memory.
     pub fn build(node_buf: []Node, primitives: []const Primitive, index_buf: []u32) !Bvh {
         // We can never have more than 2N - 1 nodes, where N is the number of object primitives.
-        var bvh: Bvh = .init(node_buf);
+        var bvh: Bvh = .initBuffer(node_buf);
         if (primitives.len == 0) return bvh;
 
         if (index_buf.len < primitives.len) return error.OutOfMemory;
@@ -69,23 +73,29 @@ pub const Bvh = struct {
 
         // Debug:
         // const nodes = bvh.nodes.list;
-        // var leaves: u32 = 0;
+        // var num_leaves: u32 = 0;
         // for (nodes.items) |node| {
         //     if (node.data) |_| {
-        //         leaves += 1;
+        //         num_leaves += 1;
         //     }
         // }
-        // std.debug.print("\nTotal nodes: {d}\n", .{nodes.items.len});
-        // std.debug.print("Total leaves: {d}\n", .{leaves});
-        // std.debug.print("Total internal nodes: {d}\n", .{nodes.items.len - leaves - 1});
-        // std.debug.print("Max BVH depth: {d}\n", .{max_bvh_depth});
+        // std.debug.print("BVH Summary\n===========\n", .{});
+        // std.debug.print("Total nodes: {d}\n", .{nodes.items.len});
+        // std.debug.print("Total leaves: {d}\n", .{num_leaves});
+        // std.debug.print("Total internal nodes: {d}\n", .{nodes.items.len - num_leaves});
+        // std.debug.print("Max subtree depth: {d}\n", .{dbg_stats.max_depth});
+        // std.debug.print(
+        //     "Avg subtree depth: {d}\n",
+        //     .{@as(f32, @floatFromInt(dbg_stats.total_depth)) / @as(f32, @floatFromInt(nodes.items.len))},
+        // );
 
         return bvh;
     }
 
     fn buildRange(self: *Bvh, primitives: []const Primitive, indices: []u32, start: usize, end: usize, depth: u32) !*Link {
         // Debug:
-        // max_bvh_depth = @max(max_bvh_depth, depth);
+        // dbg_stats.max_depth = @max(dbg_stats.max_depth, depth);
+        // dbg_stats.total_depth += depth;
 
         const span = end - start;
 
@@ -113,7 +123,7 @@ pub const Bvh = struct {
         // Split over the longest bounding box axis.
         const axis = node_bbox.longestAxis();
 
-        // Sort slice of object array indices along the chosen axis.
+        // Sort slice of scene primtive indices along the chosen axis.
         const Context = struct { axis: usize, primitives: []const Primitive };
         std.mem.sort(
             u32,
@@ -152,32 +162,32 @@ pub const Bvh = struct {
         if (self.root == null) return null;
         return hitNode(rand, self.root.?, primitives, ray, ray_interval);
     }
-};
 
-fn hitNode(rand: std.Random, link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
-    const node_ptr: *Node = @fieldParentPtr("link", link);
+    fn hitNode(rand: std.Random, link: *Link, primitives: []const Primitive, ray: Ray, ray_interval: Interval) ?HitRecord {
+        const node_ptr: *Node = @fieldParentPtr("link", link);
 
-    if (!node_ptr.bbox.hit(ray, ray_interval)) return null;
+        if (!node_ptr.bbox.hit(ray, ray_interval)) return null;
 
-    // Check if the ray hits the primitive.
-    if (node_ptr.data) |idx| return primitives[idx].hit(rand, ray, ray_interval);
+        // Check if the ray hits the primitive.
+        if (node_ptr.data) |idx| return primitives[idx].hit(rand, ray, ray_interval);
 
-    var closest_hit: ?HitRecord = null;
-    var closest_so_far = ray_interval.max;
+        var closest_hit: ?HitRecord = null;
+        var closest_so_far = ray_interval.max;
 
-    // Check if the ray intersects a node in the left or right sub-trees.
-    const link_fields = @typeInfo(Link).@"struct".fields;
-    inline for (link_fields) |link_field| {
-        const child_link: ?*Link = @field(link.*, link_field.name);
-        if (child_link) |child| {
-            if (hitNode(rand, child, primitives, ray, .{ .min = ray_interval.min, .max = closest_so_far })) |hit| {
-                closest_hit = hit;
-                closest_so_far = hit.t;
+        // Check if the ray intersects a node bounding box in the left or right sub-trees.
+        const link_fields = @typeInfo(Link).@"struct".fields;
+        inline for (link_fields) |link_field| {
+            const child_link: ?*Link = @field(link.*, link_field.name);
+            if (child_link) |child| {
+                if (hitNode(rand, child, primitives, ray, .{ .min = ray_interval.min, .max = closest_so_far })) |h| {
+                    closest_hit = h;
+                    closest_so_far = h.t;
+                }
             }
         }
+        return closest_hit;
     }
-    return closest_hit;
-}
+};
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

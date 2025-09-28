@@ -2,7 +2,7 @@
 pub fn BoundedList(comptime T: type) type {
     return struct {
         buf: []T,
-        list: ArrayList(T),
+        list: std.ArrayList(T),
 
         const Self = @This();
 
@@ -30,4 +30,3 @@ pub fn BoundedList(comptime T: type) type {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
