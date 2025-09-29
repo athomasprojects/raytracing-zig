@@ -1,6 +1,9 @@
 const gpa = std.heap.smp_allocator;
 
 pub fn main() !void {
+    zstbi.init(gpa);
+    defer zstbi.deinit();
+
     const ppm_dir = "images/the-next-week/";
     const ppm_fname = "final_high_res.ppm";
     const path = ppm_dir ++ ppm_fname;
@@ -52,7 +55,7 @@ pub fn main() !void {
     errdefer file.close();
 }
 
-fn finalScene(_: *Writer, comptime _: []const Texture) !void {
+fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     const rand = Camera.rand_state.random();
 
     // Allocate all required memory for creating scene primitives up front.
@@ -68,8 +71,8 @@ fn finalScene(_: *Writer, comptime _: []const Texture) !void {
     const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 7, 7, 7 }) };
     const dielectric: Material = .{ .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 } };
 
-    var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg") };
-    defer earth_texture.deinitImageTexture();
+    var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg", null) };
+    defer earth_texture.deinitImage();
 
     // Create scene floor blocks.
     const boxes_per_side = 20;
@@ -144,8 +147,8 @@ fn finalScene(_: *Writer, comptime _: []const Texture) !void {
         var scene_bvh: Bvh = try .buildAllocating(gpa, scene.list.items);
         defer scene_bvh.deinit(gpa);
 
-        // const cam: Camera = .final;
-        // try cam.render(file_writer, &scene_bvh, scene.list.items, tex_buf);
+        const cam: Camera = .final;
+        try cam.render(file_writer, &scene_bvh, scene.list.items, tex_buf);
         errdefer {
             scene_bvh.deinit(gpa);
             scene.deinit(gpa);
@@ -318,8 +321,8 @@ fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void 
 }
 
 fn earth(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg") };
-    defer earth_texture.deinitImageTexture();
+    var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg", null) };
+    defer earth_texture.deinitImage();
 
     const prim_count = 1;
     var prim_buf: [prim_count]Primitive = undefined;
@@ -459,6 +462,8 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
 
 const std = @import("std");
 const Writer = std.Io.Writer;
+
+const zstbi = @import("zstbi");
 
 const BoundedList = @import("util.zig").BoundedList;
 const bvh = @import("bvh.zig");

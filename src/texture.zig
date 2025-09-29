@@ -1,10 +1,3 @@
-const stb = @cImport({
-    @cDefine("STBI_ONLY_JPEG", "");
-    @cInclude("stb_image.h");
-});
-
-const StbError = error{ImageLoadFailed};
-
 const TextureTag = enum {
     solid_colour,
     checker,
@@ -61,40 +54,14 @@ pub const Texture = union(TextureTag) {
     },
 
     image: struct {
-        data: []u8,
-        width: u32 = 0,
-        height: u32 = 0,
-        bytes_per_scanline: u32 = 0,
+        img: zstbi.Image,
 
         const Self = @This();
         const bytes_per_pixel = 3;
 
-        pub fn init(pathname: [:0]const u8) !Self {
-            var w: c_int = 0;
-            var h: c_int = 0;
-            var width: u32 = 0;
-            var height: u32 = 0;
-            var components_per_pixel: c_int = Self.bytes_per_pixel;
-
-            const float_data_ptr = stb.stbi_load(pathname.ptr, &w, &h, &components_per_pixel, components_per_pixel);
-
-            if (float_data_ptr == null) return StbError.ImageLoadFailed;
-
-            width = @intCast(w);
-            height = @intCast(h);
-            const bytes_per_scanline = width * bytes_per_pixel;
-
-            return .{
-                .width = width,
-                .height = height,
-                .bytes_per_scanline = bytes_per_scanline,
-                .data = @as([*]u8, @ptrCast(float_data_ptr))[0 .. height * bytes_per_scanline],
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            stb.stbi_image_free(self.data.ptr);
-            self.data = &.{};
+        pub fn init(pathname: [:0]const u8, forced_num_components: ?u32) !Self {
+            const num_components = forced_num_components orelse Self.bytes_per_pixel;
+            return .{ .img = try .loadFromFile(pathname, num_components) };
         }
 
         pub fn value(self: Self, u: f64, v: f64) Colour {
@@ -116,14 +83,14 @@ pub const Texture = union(TextureTag) {
             //     In general, to convert a 2D coordinate (x, y) to a 1D coordinate we can use: `y * width + x`.
 
             // Denormalize the normalized texture space coordinates to 2D texture coordinates (x,y).
-            var col: u32 = @intFromFloat(u_clamp * @as(f64, @floatFromInt(self.width)));
-            var row: u32 = @intFromFloat(v_clamp * @as(f64, @floatFromInt(self.height)));
+            var col: u32 = @intFromFloat(u_clamp * @as(f64, @floatFromInt(self.img.width)));
+            var row: u32 = @intFromFloat(v_clamp * @as(f64, @floatFromInt(self.img.height)));
 
-            if (col >= self.width) col = self.width - 1;
-            if (row >= self.height) row = self.height - 1;
+            if (col >= self.img.width) col = self.img.width - 1;
+            if (row >= self.img.height) row = self.img.height - 1;
 
-            const index = row * self.bytes_per_scanline + (col * Self.bytes_per_pixel); // Convert 2D coordinate to 1D index.
-            const pixel = self.data[index .. index + Self.bytes_per_pixel];
+            const index = row * self.img.bytes_per_row + (col * Self.bytes_per_pixel); // Convert 2D coordinate to 1D index.
+            const pixel = self.img.data[index .. index + Self.bytes_per_pixel];
 
             const colour_scale = 1.0 / 255.0;
             return vec.scale(
@@ -269,9 +236,9 @@ pub const Texture = union(TextureTag) {
         };
     }
 
-    pub fn deinitImageTexture(self: *Texture) void {
+    pub fn deinitImage(self: *Texture) void {
         switch (self.*) {
-            .image => |*img| img.deinit(),
+            .image => |*image| image.img.deinit(),
             inline else => @panic("Invalid Texture, expected tag '" ++ @tagName(TextureTag.image) ++ "'"),
         }
     }
@@ -283,3 +250,4 @@ const vec = @import("vec.zig");
 const Colour = vec.Colour;
 const Point3 = vec.Point3;
 const Vec3 = vec.Vec3;
+const zstbi = @import("zstbi");

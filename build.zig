@@ -13,24 +13,29 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const stb = b.addLibrary(.{
-        .name = "stb",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-        .linkage = .static,
-    });
-    stb.addIncludePath(b.path("libs"));
-    stb.addCSourceFile(.{
-        .file = b.path("libs/stbi_wrapper.c"),
-        .flags = if (b.release_mode == .fast) &[_][]const u8{"-std=c99"} else &[_][]const u8{},
-    });
-    stb.linkLibC();
+    // Manually link stbi header file.
+    // const stb = b.addLibrary(.{
+    //     .name = "stb",
+    //     .root_module = b.createModule(.{
+    //         .target = target,
+    //         .optimize = optimize,
+    //         .link_libc = true,
+    //     }),
+    //     .linkage = .static,
+    // });
+    // stb.addIncludePath(b.path("libs"));
+    // stb.addCSourceFile(.{
+    //     .file = b.path("libs/stbi_wrapper.c"),
+    //     .flags = if (b.release_mode == .fast) &[_][]const u8{"-std=c99"} else &[_][]const u8{},
+    // });
+    // stb.linkLibC();
+    //
+    // exe.addIncludePath(b.path("libs"));
+    // exe.linkLibrary(stb);
 
-    exe.addIncludePath(b.path("libs"));
-    exe.linkLibrary(stb);
+    // Use zig stbi bindings instead.
+    const zstbi = b.dependency("zstbi", .{});
+    exe.root_module.addImport("zstbi", zstbi.module("root"));
 
     b.installArtifact(exe);
 
