@@ -92,14 +92,13 @@ pub const Texture = union(TextureTag) {
             const index = row * self.img.bytes_per_row + (col * Self.bytes_per_pixel); // Convert 2D coordinate to 1D index.
             const pixel = self.img.data[index .. index + Self.bytes_per_pixel];
 
-            const colour_scale = 1.0 / 255.0;
-            return vec.scale(
+            return vec.divScalar(
                 Colour{
                     @floatFromInt(pixel[0]),
                     @floatFromInt(pixel[1]),
                     @floatFromInt(pixel[2]),
                 },
-                colour_scale,
+                255,
             );
         }
     },
@@ -114,30 +113,30 @@ pub const Texture = union(TextureTag) {
         const point_count: u32 = 256;
         const max_turbulence_depth = 10;
 
-        pub fn init(rand: std.Random, scale: f64) @This() {
+        pub fn init(rng: *std.Random, scale: f64) @This() {
             var perlin: @This() = .{ .scale = scale };
 
             // Generate array of unit vectors with random translations.
             for (0..perlin.rand_unit_vecs.len) |i| {
-                perlin.rand_unit_vecs[i] = vec.unit(vec.randomVecInRange(rand, -1, 1));
+                perlin.rand_unit_vecs[i] = vec.unit(vec.randomVecInRange(rng, -1, 1));
             }
 
             // Generate permutation arrays used to randomize indices in noise generation.
             const fields = @typeInfo(@This()).@"struct".fields;
-            inline for (fields[2..]) |field| perlinGeneratePermutation(rand, &@field(perlin, field.name));
+            inline for (fields[2..]) |field| perlinGeneratePermutation(rng, &@field(perlin, field.name));
 
             return perlin;
         }
 
-        fn perlinGeneratePermutation(rand: std.Random, p: []u32) void {
+        fn perlinGeneratePermutation(rand: *std.Random, p: []u32) void {
             for (0..p.len) |i| p[i] = @as(u32, @intCast(i));
             permute(rand, p);
         }
 
-        fn permute(rand: std.Random, p: []u32) void {
+        fn permute(rng: *std.Random, p: []u32) void {
             var i = point_count - 1;
             while (i > 0) : (i -= 1) {
-                const target = vec.randomInt(rand, u32, 0, i);
+                const target = rng.uintAtMost(u32, i);
                 const tmp = p[i];
                 p[i] = p[target];
                 p[target] = tmp;
@@ -146,6 +145,20 @@ pub const Texture = union(TextureTag) {
 
         fn value(self: @This(), p: Point3) Colour {
             return vec.splat(0.5 * (1 + @sin(self.scale * vec.z(p) + 10 * self.turbulence(p, 7))));
+        }
+
+        fn turbulence(self: @This(), p: Point3, depth: u32) f64 {
+            if (depth > max_turbulence_depth) return 0;
+
+            var accum: f64 = 0;
+            var temp_p = p;
+            var weight: f64 = 1;
+            for (0..depth) |_| {
+                accum += weight * self.noise(temp_p);
+                weight *= 0.5;
+                temp_p = vec.scale(temp_p, 2);
+            }
+            return @abs(accum);
         }
 
         /// Returns a repeatable pseudo-random number tied to the cell of space containing the sampled point.
@@ -159,19 +172,19 @@ pub const Texture = union(TextureTag) {
             const w = vec.z(p) - @floor(vec.z(p));
 
             // Use a Hermite cubic spline to round off the interpolation.
-            const uu = u * u * (3 - 2 * u);
-            const vv = v * v * (3 - 2 * v);
-            const ww = w * w * (3 - 2 * w);
+            const uu = u * u * @mulAdd(f64, -2, u, 3); // (3 - 2 * u);
+            const vv = v * v * @mulAdd(f64, -2, v, 3); // (3 - 2 * v);
+            const ww = w * w * @mulAdd(f64, -2, w, 3); // (3 - 2 * w);
 
             const i: i32 = @intFromFloat(@floor(vec.x(p)));
             const j: i32 = @intFromFloat(@floor(vec.y(p)));
             const k: i32 = @intFromFloat(@floor(vec.z(p)));
 
-            const u_factors: [2]f64 = [2]f64{ 1.0 - uu, uu };
-            const v_factors: [2]f64 = [2]f64{ 1.0 - vv, vv };
-            const w_factors: [2]f64 = [2]f64{ 1.0 - ww, ww };
+            const u_factors: [2]f64 = .{ 1.0 - uu, uu };
+            const v_factors: [2]f64 = .{ 1.0 - vv, vv };
+            const w_factors: [2]f64 = .{ 1.0 - ww, ww };
 
-            const per_corner_interpolation_weights: [8]f64 = [_]f64{
+            const per_corner_interpolation_weights: [8]f64 = .{
                 u_factors[0] * v_factors[0] * w_factors[0],
                 u_factors[1] * v_factors[0] * w_factors[0],
                 u_factors[0] * v_factors[1] * w_factors[0],
@@ -210,20 +223,6 @@ pub const Texture = union(TextureTag) {
                 );
             }
             return accum;
-        }
-
-        fn turbulence(self: @This(), p: Point3, depth: u32) f64 {
-            if (depth > max_turbulence_depth) return 0;
-
-            var accum: f64 = 0;
-            var temp_p = p;
-            var weight: f64 = 1;
-            for (0..depth) |_| {
-                accum += weight * self.noise(temp_p);
-                weight *= 0.5;
-                temp_p = vec.scale(temp_p, 2);
-            }
-            return @abs(accum);
         }
     },
 

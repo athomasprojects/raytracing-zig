@@ -25,7 +25,7 @@ pub fn fromPoints(a: Point3, b: Point3) Aabb {
                 // Adjust bounding box so that no side is narrower
                 // than some delta, padding if necessary.
                 const delta = 0.0001;
-                if (interval.size() < delta) interval.expandBy(delta);
+                if (interval.size() < delta) interval.padBy(delta);
                 @field(bbox, field.name) = interval;
             },
             else => unreachable,
@@ -53,9 +53,40 @@ pub fn fromOffset(self: Aabb, offset: Vec3) Aabb {
     };
 }
 
-pub fn axisInterval(self: Aabb, n: usize) Interval {
-    if (n == 1) return self.y;
-    if (n == 2) return self.z;
+pub fn centroid(self: Aabb) Point3 {
+    var c: Vec3 = vec.zero;
+    const fields = @typeInfo(Aabb).@"struct".fields;
+    inline for (fields, 0..fields.len) |field, idx| {
+        switch (idx) {
+            0...fields.len - 1 => {
+                const interval: Interval = @field(self, field.name);
+                c[idx] = 0.5 * (interval.min + interval.max);
+            },
+            else => @panic("unexpected attempt to access invalid Interval struct field"),
+        }
+    }
+    return c;
+}
+
+pub fn surfaceArea(self: Aabb) f64 {
+    const dx = self.x.size();
+    const dy = self.y.size();
+    const dz = self.z.size();
+
+    // Multiply this entire expression by 2 to get the actual bounding box
+    // surface area.
+    //
+    // Note: We can omit the factor of 2 in our calculation since the
+    // probability that a primitive's bounding box will be hit is proportional
+    // to the total surface of all the primitives within a node. Thus, a
+    // scaling fact does not matter.
+    return dx * dy + dy * dz + dz * dx;
+}
+
+/// Returns the `Interval` along the bounding box axis given by `index`.
+pub fn intervalFromAxisIndex(self: Aabb, i: usize) Interval {
+    if (i == 1) return self.y;
+    if (i == 2) return self.z;
     return self.x;
 }
 
@@ -73,7 +104,7 @@ pub fn hit(self: Aabb, ray: Ray, ray_interval: Interval) bool {
 
     const fields = @typeInfo(Aabb).@"struct".fields;
     for (0..fields.len) |axis_idx| {
-        const ax: Interval = self.axisInterval(axis_idx);
+        const ax: Interval = self.intervalFromAxisIndex(axis_idx);
         const adinv: f64 = 1.0 / ray.direction[axis_idx];
 
         const t0 = (ax.min - ray.origin[axis_idx]) * adinv;
@@ -91,6 +122,55 @@ pub fn hit(self: Aabb, ray: Ray, ray_interval: Interval) bool {
     }
 
     return true;
+}
+
+pub fn hitFast(self: Aabb, origin: Vec3, inv_dir: Vec3, t_min: f64, t_max: f64) bool {
+    // Slab test using pre-computed inverse direction.
+    var tmin = t_min;
+    var tmax = t_max;
+
+    const fields = @typeInfo(Aabb).@"struct".fields;
+    inline for (fields, 0..fields.len) |field, idx| {
+        switch (idx) {
+            0...fields.len - 1 => {
+                const axis_interval: Interval = @field(self, field.name);
+                const inv_component = inv_dir[idx];
+                const t0 = (axis_interval.min - origin[idx]) * inv_component;
+                const t1 = (axis_interval.max - origin[idx]) * inv_component;
+                const ta, const tb = if (t0 <= t1) .{ t0, t1 } else .{ t1, t0 };
+                tmin = @max(ta, tmin);
+                tmax = @min(tb, tmin);
+                if (tmax <= tmin) return false;
+            },
+            else => unreachable,
+        }
+    }
+    return true;
+}
+
+/// Returns the nearest entry distance to this AABB for ordering purposes,
+/// otherwise returns null for a ray miss.
+pub fn entryDistance(self: Aabb, origin: Vec3, inv_dir: Vec3) ?f64 {
+    var tmin: f64 = -vec.infinity;
+    var tmax: f64 = vec.infinity;
+
+    const fields = @typeInfo(Aabb).@"struct".fields;
+    inline for (fields, 0..fields.len) |field, idx| {
+        switch (idx) {
+            0...fields.len - 1 => {
+                const axis_interval: Interval = @field(self, field.name);
+                const inv_component = inv_dir[idx];
+                const t0 = (axis_interval.min - origin[idx]) * inv_component;
+                const t1 = (axis_interval.max - origin[idx]) * inv_component;
+                const ta, const tb = if (t0 <= t1) .{ t0, t1 } else .{ t1, t0 };
+                tmin = @max(ta, tmin);
+                tmax = @min(tb, tmin);
+                if (tmax <= tmin) return null;
+            },
+            else => unreachable,
+        }
+    }
+    return tmin;
 }
 
 const Interval = @import("Interval.zig");

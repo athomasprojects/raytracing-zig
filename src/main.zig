@@ -4,16 +4,23 @@ pub fn main() !void {
     zstbi.init(gpa);
     defer zstbi.deinit();
 
+    var seed: u64 = undefined;
+    try std.posix.getrandom(std.mem.asBytes(&seed));
+    var prng = std.Random.DefaultPrng.init(seed);
+    var rng = prng.random();
+
+    // var prng = std.Random.DefaultPrng.init(seed);
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "final_high_res.ppm";
+    const ppm_fname = "final_box.ppm";
     const path = ppm_dir ++ ppm_fname;
 
     // Create or open ppm file.
     const file = try std.fs.cwd().createFile(path, .{ .read = true });
     defer file.close();
+    errdefer file.close();
 
     // Get file writer interface.
-    var file_buffer: [32768]u8 = undefined;
+    var file_buffer: [4096]u8 = undefined;
     var file_writer = file.writer(&file_buffer);
     const file_out = &file_writer.interface;
 
@@ -41,41 +48,51 @@ pub fn main() !void {
     };
 
     switch (SceneType.final) {
-        .final => try finalScene(file_out, empty_tex_buf),
+        .final => try finalScene(file_out, empty_tex_buf, &rng),
         .cornell_box => try cornellBox(file_out, empty_tex_buf),
         .cornell_smoke => try cornellSmoke(file_out, empty_tex_buf),
-        .simple_light => try simpleLight(file_out, empty_tex_buf),
-        .quads => try quads(file_out, empty_tex_buf),
-        .perlin_spheres => try perlinSpheres(file_out, empty_tex_buf),
+        .simple_light => try simpleLight(file_out, empty_tex_buf, &rng),
+        .quads => try quads(file_out, empty_tex_buf, &rng),
+        .perlin_spheres => try perlinSpheres(file_out, empty_tex_buf, &rng),
         .earth => try earth(file_out, empty_tex_buf),
-        .checkered_spheres => try bouncingSpheres(file_out, 490, &checker_textures),
-        .bouncing_spheres => try checkeredSpheres(file_out, &checker_textures),
+        .checkered_spheres => try checkeredSpheres(file_out, &checker_textures),
+        .bouncing_spheres => try bouncingSpheres(file_out, 490, &checker_textures, &rng),
     }
-
-    errdefer file.close();
 }
 
-fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const rand = Camera.rand_state.random();
-
-    // Allocate all required memory for creating scene primitives up front.
-    const total_scene_prim_count = 1410;
-    const tiny_sphere_count = 1000;
-    var scene: BoundedList(Primitive) = try .initCapacity(gpa, total_scene_prim_count);
+fn finalScene(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Random) !void {
+    // Allocate all required memory for scene primitives and the BVH up front.
+    const total_scene_prim_count = 434;
+    const tiny_sphere_count = 100;
     var cube_of_spheres_buf = try gpa.alloc(Primitive, 3 * tiny_sphere_count);
-    defer scene.deinit(gpa);
-    defer gpa.free(cube_of_spheres_buf);
+    var scene: util.BoundedList(Primitive) = try .initCapacity(gpa, total_scene_prim_count);
+    var scratch: []Aabb = try gpa.alloc(Aabb, 2 * total_scene_prim_count);
+    _ = &scratch;
+    defer {
+        scene.deinit(gpa);
+        gpa.free(scratch);
+        gpa.free(cube_of_spheres_buf);
+    }
+
+    // const total_scene_prim_count = 110;
+    // const tiny_sphere_count = 100;
+    // var cube_of_spheres_buf: [3 * tiny_sphere_count]Primitive = undefined;
+    // var prim_buf: [total_scene_prim_count]Primitive = undefined;
+    // var scene: util.BoundedList(Primitive) = .init(&prim_buf);
+    // var scratch: [2 * total_scene_prim_count]Aabb = undefined;
+    // var node_buf: [2 * total_scene_prim_count - 1]bvh.Node = undefined;
+    // var indices: [total_scene_prim_count]u32 = undefined;
 
     // Materials
     const ground: Material = .{ .lambertian = .fromAlbedo(.{ 0.48, 0.83, 0.53 }) };
-    const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 7, 7, 7 }) };
-    const dielectric: Material = .{ .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 } };
+    // // const light: Material = .{ .diffuse_light = .fromEmittedColour(vec.splat(1)) };
+    const dielectric: Material = .{ .dielectric = .{ .albedo = vec.splat(1), .refraction_index = 1.5 } };
 
     var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg", null) };
     defer earth_texture.deinitImage();
 
     // Create scene floor blocks.
-    const boxes_per_side = 20;
+    const boxes_per_side = 18;
     for (0..boxes_per_side) |i| {
         for (0..boxes_per_side) |j| {
             const w = 100.0;
@@ -84,7 +101,7 @@ fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
 
             try scene.list.appendBounded(.{ .box = .init(
                 Point3{ x0, 0, z0 },
-                Point3{ x0 + w, vec.randomFloatInRange(rand, 1, 101), z0 + w },
+                Point3{ x0 + w, vec.randomFloatInRange(rng, 1, 101), z0 + w },
                 ground,
             ) });
         }
@@ -94,12 +111,14 @@ fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     const center: Point3 = .{ 400, 400, 200 };
     const boundary: Primitive = .{ .sphere = .init(Point3{ 360, 150, 145 }, 70, dielectric) };
     try scene.list.appendSliceBounded(&.{
-        .{ .quad = .init(
-            Point3{ 123, 554, 147 },
-            Vec3{ 300, 0, 0 },
-            Vec3{ 0, 0, 265 },
-            light,
-        ) },
+        .{
+            .quad = .init(
+                Point3{ 123, 554, 147 },
+                Vec3{ 300, 0, 0 },
+                Vec3{ 0, 0, 265 },
+                .{ .diffuse_light = .fromEmittedColour(vec.splat(1)) }, // Light source (setting the colour to {7,7,7} results in greyish light).
+            ),
+        },
         .{ .sphere = .initMoving(
             center,
             center + Vec3{ 30, 0, 0 },
@@ -117,7 +136,7 @@ fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .constant_medium = .fromAlbedo(
             &.{ .sphere = .init(vec.zero, 5000, dielectric) },
             0.0001,
-            Colour{ 1, 1, 1 },
+            vec.splat(1),
         ) },
         .{ .sphere = .init(
             Point3{ 400, 200, 400 },
@@ -127,30 +146,34 @@ fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .sphere = .init(
             Point3{ 220, 280, 300 },
             80,
-            .{ .lambertian = .{ .tex = .{ .noise = .init(rand, 0.2) } } },
+            .{ .lambertian = .{ .tex = .{ .noise = .init(rng, 0.2) } } },
         ) },
     });
 
     // Cube of small spheres.
-    const white: Material = .{ .lambertian = .fromAlbedo(Colour{ 0.73, 0.73, 0.73 }) };
+    const white: Material = .{ .lambertian = .fromAlbedo(vec.splat(0.73)) };
     const translation_offset = 2 * tiny_sphere_count;
     for (0..tiny_sphere_count) |i| {
         const rot_idx = tiny_sphere_count + i;
         const trans_idx = translation_offset + i;
-        cube_of_spheres_buf[i] = .{ .sphere = .init(vec.randomVecInRange(rand, 0, 165), 10, white) };
+
+        cube_of_spheres_buf[i] = .{ .sphere = .init(vec.randomVecInRange(rng, 0, 165), 15, white) };
         cube_of_spheres_buf[rot_idx] = .{ .rotate = .init(&cube_of_spheres_buf[i], 15) };
         cube_of_spheres_buf[trans_idx] = .{ .translate = .init(&cube_of_spheres_buf[rot_idx], Vec3{ -100, 270, 395 }) };
     }
     try scene.list.appendSliceBounded(cube_of_spheres_buf[translation_offset..]);
 
     {
-        var scene_bvh: Bvh = try .buildAllocating(gpa, scene.list.items);
+        // var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, scene.list.items, &scratch);
+        var scene_bvh: bvh.Bvh = try .buildAllocating(gpa, scene.list.items, scratch);
         defer scene_bvh.deinit(gpa);
 
         const cam: Camera = .final;
-        try cam.render(file_writer, &scene_bvh, scene.list.items, tex_buf);
+        try cam.render(file_out, &scene_bvh, scene.list.items, tex_buf);
+
         errdefer {
             scene_bvh.deinit(gpa);
+            scratch.deinit(gpa);
             scene.deinit(gpa);
             earth_texture.deinitImageTexture();
             gpa.free(cube_of_spheres_buf);
@@ -158,16 +181,16 @@ fn finalScene(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     }
 }
 
-fn cornellSmoke(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+fn cornellSmoke(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     const red: Material = .{ .lambertian = .fromAlbedo(.{ 0.65, 0.05, 0.05 }) };
     const white: Material = .{ .lambertian = .fromAlbedo(.{ 0.73, 0.73, 0.73 }) };
     const green: Material = .{ .lambertian = .fromAlbedo(.{ 0.12, 0.45, 0.15 }) };
-    const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 15, 15, 15 }) };
+    const light: Material = .{ .diffuse_light = .fromEmittedColour(vec.splat(7)) };
 
     const prim_count = 8;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
-    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+    var node_buf: [2 * prim_count - 1]bvh.Node = undefined;
 
     const smoke_block: Primitive = .{
         .translate = .init(
@@ -177,74 +200,78 @@ fn cornellSmoke(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     };
     const fog_block: Primitive = .{
         .translate = .init(
-            &.{ .rotate = .init(&.{ .box = .init(vec.zero, Vec3{ 165, 165, 165 }, white) }, -18) },
+            &.{ .rotate = .init(&.{ .box = .init(vec.zero, vec.splat(165), white) }, -18) },
             Vec3{ 130, 0, 65 },
         ),
     };
 
-    var scene_primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var scene_primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try scene_primitives.list.appendSliceBounded(&.{
         .{ .quad = .init(Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, green) },
         .{ .quad = .init(vec.zero, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, red) },
         .{ .quad = .init(Point3{ 343, 554, 332 }, Vec3{ -130, 0, 0 }, Vec3{ 0, 0, -105 }, light) },
         .{ .quad = .init(vec.zero, Vec3{ 555, 0, 0 }, Vec3{ 0, 0, 555 }, white) },
-        .{ .quad = .init(Point3{ 555, 555, 555 }, Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
+        .{ .quad = .init(vec.splat(555), Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
         .{ .quad = .init(Point3{ 0, 0, 555 }, Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, white) },
         .{ .constant_medium = .fromAlbedo(&smoke_block, 0.01, vec.zero) },
-        .{ .constant_medium = .fromAlbedo(&fog_block, 0.01, Colour{ 1, 1, 1 }) },
+        .{ .constant_medium = .fromAlbedo(&fog_block, 0.01, vec.ones) },
     });
-    var bounding_volumes: Bvh = try .build(&node_buf, scene_primitives.list.items, &indices);
+
+    var scratch: [prim_count * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, scene_primitives.list.items, &scratch);
 
     const cam: Camera = .cornell;
-    try cam.render(file_writer, &bounding_volumes, scene_primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, scene_primitives.list.items, tex_buf);
 }
 
-fn cornellBox(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+fn cornellBox(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     const red: Material = .{ .lambertian = .fromAlbedo(.{ 0.65, 0.05, 0.05 }) };
     const white: Material = .{ .lambertian = .fromAlbedo(.{ 0.73, 0.73, 0.73 }) };
     const green: Material = .{ .lambertian = .fromAlbedo(.{ 0.12, 0.45, 0.15 }) };
-    const light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 15, 15, 15 }) };
+    const light: Material = .{ .diffuse_light = .fromEmittedColour(vec.splat(15)) };
 
     const prim_count = 8;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
-    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+    var node_buf: [2 * prim_count - 1]bvh.Node = undefined;
 
-    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&.{
         .{ .quad = .init(Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, green) },
         .{ .quad = .init(vec.zero, Vec3{ 0, 555, 0 }, Vec3{ 0, 0, 555 }, red) },
         .{ .quad = .init(Point3{ 343, 554, 332 }, Vec3{ -130, 0, 0 }, Vec3{ 0, 0, -105 }, light) },
         .{ .quad = .init(vec.zero, Vec3{ 555, 0, 0 }, Vec3{ 0, 0, 555 }, white) },
-        .{ .quad = .init(Point3{ 555, 555, 555 }, Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
+        .{ .quad = .init(vec.splat(555), Vec3{ -555, 0, 0 }, Vec3{ 0, 0, -555 }, white) },
         .{ .quad = .init(Point3{ 0, 0, 555 }, Vec3{ 555, 0, 0 }, Vec3{ 0, 555, 0 }, white) },
         .{ .translate = .init(
             &.{ .rotate = .init(&.{ .box = .init(vec.zero, Vec3{ 165, 330, 165 }, white) }, 15) },
             .{ 265, 0, 295 },
         ) },
         .{ .translate = .init(
-            &.{ .rotate = .init(&.{ .box = .init(vec.zero, Vec3{ 165, 165, 165 }, white) }, -18) },
+            &.{ .rotate = .init(&.{ .box = .init(vec.zero, vec.splat(165), white) }, -18) },
             .{ 130, 0, 65 },
         ) },
     });
-    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    var scratch: [prim_count * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
+    _ = &scene_bvh;
+    scratch = undefined;
 
     const cam: Camera = .cornell;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
 }
 
-fn simpleLight(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const rand = Camera.rand_state.random();
-
-    const perlin: Texture = .{ .noise = .init(rand, 4) };
+fn simpleLight(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Random) !void {
+    const perlin: Texture = .{ .noise = .init(rng, 4) };
     const diffuse_light: Material = .{ .diffuse_light = .fromEmittedColour(.{ 4, 4, 4 }) };
 
     const prim_count = 4;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
-    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+    var node_buf: [2 * prim_count - 1]bvh.Node = undefined;
 
-    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&.{
         .{ .sphere = .init(
             Point3{ 0, -1000, 0 },
@@ -259,13 +286,15 @@ fn simpleLight(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .sphere = .init(Point3{ 0, 7, 0 }, 2, diffuse_light) },
         .{ .quad = .init(Point3{ 3, 1, -2 }, Vec3{ 2, 0, 0 }, Vec3{ 0, 2, 0 }, diffuse_light) },
     });
-    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+
+    var scratch: [prim_count * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
 
     const cam: Camera = .simple_light;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
 }
 
-fn quads(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+fn quads(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     const left_red: Material = .{ .lambertian = .fromAlbedo(.{ 1, 0.2, 0.2 }) };
     const back_green: Material = .{ .lambertian = .fromAlbedo(.{ 0.2, 1, 0.2 }) };
     const right_blue: Material = .{ .lambertian = .fromAlbedo(.{ 0.2, 0.2, 1 }) };
@@ -275,9 +304,9 @@ fn quads(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
     const prim_count = 5;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
-    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+    var node_buf: [2 * prim_count - 1]bvh.Node = undefined;
 
-    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&.{
         .{ .quad = .init(Point3{ -3, -2, 5 }, Vec3{ 0, 0, -4 }, Vec3{ 0, 4, 0 }, left_red) },
         .{ .quad = .init(Point3{ -2, -2, 0 }, Vec3{ 4, 0, 0 }, Vec3{ 0, 4, 0 }, back_green) },
@@ -285,22 +314,20 @@ fn quads(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .quad = .init(Point3{ -2, 3, 1 }, Vec3{ 4, 0, 0 }, Vec3{ 0, 0, 4 }, upper_orange) },
         .{ .quad = .init(Point3{ -2, -3, 5 }, Vec3{ 4, 0, 0 }, Vec3{ 0, 0, -4 }, lower_teal) },
     });
-    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items);
 
     const cam: Camera = .quads;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
 }
 
-fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
-    const rand = Camera.rand_state.random();
-
-    const perlin: Texture = .{ .noise = .init(rand, 4) };
+fn perlinSpheres(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Random) !void {
+    const perlin: Texture = .{ .noise = .init(rng, 4) };
     const prim_count = 2;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
-    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+    var node_buf: [2 * prim_count - 1]bvh.Node = undefined;
 
-    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&.{
         .{ .sphere = .init(
             Point3{ 0, -1000, 0 },
@@ -314,22 +341,23 @@ fn perlinSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void 
         ) },
     });
 
-    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+    var scratch: [prim_count * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
 
     const cam: Camera = .checker;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
 }
 
-fn earth(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+fn earth(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg", null) };
     defer earth_texture.deinitImage();
 
     const prim_count = 1;
     var prim_buf: [prim_count]Primitive = undefined;
     var indices: [prim_count]u32 = undefined;
-    var node_buf: [2 * prim_count - 1]BvhNode = undefined;
+    var node_buf: [2 * prim_count - 1]bvh.Node = undefined;
 
-    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendBounded(.{
         .sphere = .init(
             vec.zero,
@@ -338,13 +366,14 @@ fn earth(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
         ),
     });
 
-    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+    var scratch: [prim_count * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
 
     const cam: Camera = .earth;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
 }
 
-fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !void {
+fn checkeredSpheres(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     const spheres = [_]Primitive{
         .{ .sphere = .init(
             Point3{ 0, -10, 0 },
@@ -360,22 +389,26 @@ fn checkeredSpheres(file_writer: *Writer, comptime tex_buf: []const Texture) !vo
 
     var prim_buf: [spheres.len]Primitive = undefined;
     var indices: [spheres.len]u32 = undefined;
-    var node_buf: [2 * spheres.len - 1]BvhNode = undefined;
+    var node_buf: [2 * spheres.len - 1]bvh.Node = undefined;
 
-    var primitives: BoundedList(Primitive) = .init(&prim_buf);
+    var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&spheres);
 
-    var bounding_volumes: Bvh = try .build(&node_buf, primitives.list.items, &indices);
+    var scratch: [primitives.len * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
 
     const cam: Camera = .checker;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
 }
 
-fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime tex_buf: []const Texture) !void {
-    const rand = Camera.rand_state.random();
-
-    var primitives: BoundedList(Primitive) = try .initCapacity(gpa, max_capacity);
-    defer primitives.deinit(gpa);
+fn bouncingSpheres(file_out: *Writer, max_capacity: usize, comptime tex_buf: []const Texture, rng: *std.Random) !void {
+    var primitives: util.BoundedList(Primitive) = try .initCapacity(gpa, max_capacity);
+    var scratch: []Aabb = try gpa.alloc(Aabb, max_capacity);
+    _ = &scratch;
+    defer {
+        primitives.deinit(gpa);
+        gpa.free(scratch);
+    }
 
     const ground: Material = .{
         .lambertian = .{ .tex = tex_buf[tex_buf.len - 1] },
@@ -388,11 +421,11 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
         for (0..22) |j| {
             const b: f64 = @as(f64, @floatFromInt(j)) - 11.0;
 
-            const choose_mat = vec.randomFloat(rand);
+            const choose_mat = vec.randomFloat(rng);
             const center: Vec3 = .{
-                a + 0.9 * vec.randomFloat(rand),
+                a + 0.9 * vec.randomFloat(rng),
                 0.2,
-                b + 0.9 * vec.randomFloat(rand),
+                b + 0.9 * vec.randomFloat(rng),
             };
 
             const p: Vec3 = center - Point3{ 4, 0.2, 0 };
@@ -401,12 +434,12 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
                 if (choose_mat < 0.8) {
                     // Diffuse
                     material = .{
-                        .lambertian = .{ .tex = .{ .solid_colour = .{ .albedo = vec.randomVec(rand) * vec.randomVec(rand) } } },
+                        .lambertian = .{ .tex = .{ .solid_colour = .{ .albedo = vec.randomVec(rng) * vec.randomVec(rng) } } },
                     };
                     try primitives.list.appendBounded(
                         .{ .sphere = .initMoving(
                             center,
-                            center + Vec3{ 0, vec.randomFloatInRange(rand, 0, 0.5), 0 },
+                            center + Vec3{ 0, vec.randomFloatInRange(rng, 0, 0.5), 0 },
                             0.2,
                             material,
                         ) },
@@ -415,15 +448,15 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
                     // Metal
                     material = .{
                         .metal = .{
-                            .albedo = vec.randomVecInRange(rand, 0.5, 1),
-                            .fuzz = vec.randomFloatInRange(rand, 0, 0.5),
+                            .albedo = vec.randomVecInRange(rng, 0.5, 1),
+                            .fuzz = vec.randomFloatInRange(rng, 0, 0.5),
                         },
                     };
                     try primitives.list.appendBounded(.{ .sphere = .init(center, 0.2, material) });
                 } else {
                     // Glass
                     material = .{
-                        .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 },
+                        .dielectric = .{ .albedo = vec.ones, .refraction_index = 1.5 },
                     };
                     try primitives.list.appendBounded(.{ .sphere = .init(center, 0.2, material) });
                 }
@@ -435,7 +468,7 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
         .{ .sphere = .init(
             Point3{ 0, 1, 0 },
             1,
-            .{ .dielectric = .{ .albedo = .{ 1, 1, 1 }, .refraction_index = 1.5 } },
+            .{ .dielectric = .{ .albedo = vec.ones, .refraction_index = 1.5 } },
         ) },
         .{ .sphere = .init(
             Point3{ -4, 1, 0 },
@@ -449,14 +482,15 @@ fn bouncingSpheres(file_writer: *Writer, comptime max_capacity: usize, comptime 
         ) },
     });
 
-    var bounding_volumes: Bvh = try .buildAllocating(gpa, primitives.list.items);
-    defer bounding_volumes.deinit(gpa);
+    var scene_bvh: bvh.Bvh = try .buildAllocating(gpa, primitives.list.items, scratch);
+    defer scene_bvh.deinit(gpa);
 
     const cam: Camera = .bouncing_spheres;
-    try cam.render(file_writer, &bounding_volumes, primitives.list.items, tex_buf);
+    try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
     errdefer {
+        gpa.free(scratch);
         primitives.deinit(gpa);
-        bounding_volumes.deinit(gpa);
+        scene_bvh.deinit(gpa);
     }
 }
 
@@ -465,14 +499,13 @@ const Writer = std.Io.Writer;
 
 const zstbi = @import("zstbi");
 
-const BoundedList = @import("util.zig").BoundedList;
+const Aabb = @import("AxisAlignedBoundingBox.zig");
 const bvh = @import("bvh.zig");
-const Bvh = bvh.Bvh;
-const BvhNode = bvh.Node;
 const Camera = @import("Camera.zig");
 const Material = @import("material.zig").Material;
 const Primitive = @import("hittable.zig").Primitive;
 const Texture = @import("texture.zig").Texture;
+const util = @import("util.zig");
 const vec = @import("vec.zig");
 const Colour = vec.Colour;
 const Point3 = vec.Point3;

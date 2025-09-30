@@ -33,7 +33,7 @@ pub fn surrounds(self: Interval, x: f64) bool {
     return self.min < x and x < self.max;
 }
 
-pub fn expandBy(self: *Interval, delta: f64) void {
+pub fn padBy(self: *Interval, delta: f64) void {
     const padding = 0.5 * delta;
     self.min = self.min - padding;
     self.max = self.max + padding;

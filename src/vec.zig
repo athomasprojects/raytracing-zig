@@ -23,7 +23,7 @@ pub inline fn scale(v: Vec3, t: f64) Vec3 {
 }
 
 pub inline fn divScalar(v: Vec3, t: f64) Vec3 {
-    return v / splat(t);
+    return v * splat(1.0 / t);
 }
 
 pub fn magnitude(v: Vec3) f64 {
@@ -38,19 +38,12 @@ pub fn dot(u: Vec3, v: Vec3) f64 {
     return @reduce(.Add, u * v);
 }
 
-pub fn cross(u: Vec3, v: Vec3) Vec3 {
-    // Shuffle index sets for cross product.
-    // x = u.y*v.z - u.z*v.y
-    // y = u.z*v.x - u.x*v.z
-    // z = u.x*v.y - u.y*v.x
-
-    const yzx_mask = [3]i32{ 1, 2, 0 };
-    const zxy_mask = [3]i32{ 2, 0, 1 };
-    const u_yzx: Vec3 = @shuffle(f64, u, undefined, yzx_mask);
-    const v_zxy: Vec3 = @shuffle(f64, v, undefined, zxy_mask);
-    const u_zxy: Vec3 = @shuffle(f64, u, undefined, zxy_mask);
-    const v_yzx: Vec3 = @shuffle(f64, v, undefined, yzx_mask);
-    return u_yzx * v_zxy - u_zxy * v_yzx;
+pub inline fn cross(u: Vec3, v: Vec3) Vec3 {
+    return .{
+        y(u) * z(v) - z(u) * y(v),
+        z(u) * x(v) - x(u) * z(v),
+        x(u) * y(v) - y(u) * x(v),
+    };
 }
 
 pub fn unit(v: Vec3) Vec3 {
@@ -61,14 +54,15 @@ pub fn unit(v: Vec3) Vec3 {
     return divScalar(v, mag);
 }
 
-/// Returns the reflected vector from an incident vector `v` on a surface with normal vector `n`.
+/// Returns the reflected vector from an incident vector `v` on a surface with
+/// normal vector `n`.
 pub fn reflect(v: Vec3, n: Vec3) Vec3 {
     return v - scale(n, 2 * dot(v, n));
 }
 
-/// Returns the refracetd vector resulting from the incident vector `v` passing
-/// through two media (whose ratio of refractive indices is given by `eta_i/eta_t`),
-/// separated by a surface with normal vector `n`.
+/// Returns the refracted vector resulting from the incident vector `v` passing
+/// through two media (whose ratio of refractive indices is given by
+/// `eta_i/eta_t`), separated by a surface with normal vector `n`.
 ///
 /// The result is calculated using Snell's law.
 pub fn refract(v: Vec3, n: Vec3, refractive_index_ratio: f64) Vec3 {
@@ -86,46 +80,50 @@ pub inline fn nearZero(v: Vec3) bool {
     return @reduce(.And, @abs(v) < tolerance_vec);
 }
 
+pub inline fn allGEqZero(v: Vec3) bool {
+    return @reduce(.And, v >= zero);
+}
+
 pub fn isUnit(v: Vec3) bool {
     return math.approxEqAbs(f64, magnitude2(v), 1, math.floatEpsAt(f64, 1));
 }
 
-/// Returns random integer in [`min`, `max`].
-pub inline fn randomInt(r: Random, comptime T: type, min: T, max: T) T {
-    return r.intRangeAtMost(T, min, max);
+/// Returns a random integer in [`min`, `max`].
+pub inline fn randomInt(rng: *std.Random, comptime T: type, min: T, max: T) T {
+    return rng.intRangeAtMost(T, min, max);
 }
 
-/// Returns random real in [0, 1).
-pub inline fn randomFloat(r: Random) f64 {
-    return r.float(f64);
+/// Returns a random real in [0, 1).
+pub inline fn randomFloat(rng: *std.Random) f64 {
+    return rng.float(f64);
 }
 
 /// Returns a random real in [min,max).
-pub fn randomFloatInRange(r: Random, min: f64, max: f64) f64 {
-    return min + (max - min) * randomFloat(r);
+pub fn randomFloatInRange(rng: *std.Random, min: f64, max: f64) f64 {
+    return min + (max - min) * randomFloat(rng);
 }
 
 /// Returns random vector whose elements are all in [0, 1).
-pub fn randomVec(r: Random) Vec3 {
+pub fn randomVec(rng: *std.Random) Vec3 {
     return .{
-        randomFloat(r),
-        randomFloat(r),
-        randomFloat(r),
+        randomFloat(rng),
+        randomFloat(rng),
+        randomFloat(rng),
     };
 }
 
 /// Returns random vector whose elements are all in [min, max).
-pub fn randomVecInRange(r: Random, min: f64, max: f64) Vec3 {
+pub fn randomVecInRange(rng: *std.Random, min: f64, max: f64) Vec3 {
     return .{
-        randomFloatInRange(r, min, max),
-        randomFloatInRange(r, min, max),
-        randomFloatInRange(r, min, max),
+        randomFloatInRange(rng, min, max),
+        randomFloatInRange(rng, min, max),
+        randomFloatInRange(rng, min, max),
     };
 }
 
-pub fn randomUnitVec(r: Random) Vec3 {
+pub fn randomUnitVec(rng: *std.Random) Vec3 {
     while (true) {
-        const v = randomVecInRange(r, -1, 1);
+        const v = randomVecInRange(rng, -1, 1);
         const mag_sq = magnitude2(v);
         if (math.floatEpsAt(f64, 0) < mag_sq and mag_sq <= 1) {
             return divScalar(v, math.sqrt(mag_sq));
@@ -133,34 +131,43 @@ pub fn randomUnitVec(r: Random) Vec3 {
     }
 }
 
-/// Returns a random vector within the unit disk defined by x^2 + y^2 = 1.
-pub fn randomVecInUnitDisk(r: Random) Vec3 {
-    while (true) {
-        const v: Vec3 = .{
-            randomFloatInRange(r, -1, 1),
-            randomFloatInRange(r, -1, 1),
-            0,
-        };
+/// Returns a uniformly sampled random vector within the unit disk defined by
+/// x² + y² = 1, using polar sampling.
+pub fn randomVecInUnitDisk(rng: *std.Random) Vec3 {
+    // while (true) {
+    //     const v: Vec3 = .{
+    //         randomFloatInRange(r, -1, 1),
+    //         randomFloatInRange(r, -1, 1),
+    //         0,
+    //     };
+    //
+    //     if (magnitude2(v) < 1)
+    //         return v;
+    // }
 
-        if (magnitude2(v) < 1)
-            return v;
-    }
+    const theta = two_pi * randomFloat(rng);
+    const radius = randomFloat(rng);
+    return .{
+        radius * @cos(theta),
+        radius * @sin(theta),
+        0,
+    };
 }
 
-/// Returns random unit vector on the same hemisphere as the surface normal.
-pub fn randomVecOnHemisphere(r: Random, normal: Vec3) Vec3 {
-    const v = randomUnitVec(r);
+/// Returns a random unit vector on the same hemisphere as the surface normal.
+pub fn randomVecOnHemisphere(rng: *std.Random, normal: Vec3) Vec3 {
+    const v = randomUnitVec(rng);
     return if (dot(v, normal) > 0) v else -v;
 }
 
 pub fn hasTwoOnes(v: Vec3) bool {
     const abs_v: Vec3 = @abs(v);
-    const comparison: @Vector(3, bool) = @abs(abs_v - one) <= tolerance_vec;
+    const comparison: @Vector(3, bool) = @abs(abs_v - ones) <= tolerance_vec;
     return @reduce(.Add, @as(@Vector(3, u8), @intFromBool(comparison))) == 2;
 }
 
 pub fn isAllOnes(v: Vec3) bool {
-    return eql(@abs(v), one);
+    return eql(@abs(v), ones);
 }
 
 pub fn print(v: Vec3) void {
@@ -237,7 +244,7 @@ pub fn print(v: Vec3) void {
 //
 // test "length squared" {
 //     const u: Vec3 = .{ 1, 1, 0 };
-//     const v: Vec3 = .{ 1, 1, 1 };
+//     const v: Vec3 = ones;
 //     const w: Vec3 = .{ -1, 1, 0 };
 //     const u_l2 = magnitude2(u);
 //     const v_l2 = magnitude2(v);
@@ -250,7 +257,7 @@ pub fn print(v: Vec3) void {
 // test "length" {
 //     const u: Vec3 = .{ -1, 0, 0 };
 //     const v: Vec3 = .{ 1, 0, 1 };
-//     const w: Vec3 = .{ 1, 1, 1 };
+//     const w: Vec3 = ones;
 //     try expect(magnitude(u) == 1);
 //     try expect(magnitude(v) == sqrt2);
 //     try expect(magnitude(w) == sqrt3);
@@ -323,7 +330,6 @@ pub fn print(v: Vec3) void {
 
 const std = @import("std");
 const math = std.math;
-const Random = std.Random;
 
 pub const Colour = Vec3;
 pub const Point3 = Vec3;
@@ -333,7 +339,8 @@ pub const infinity = math.inf(f64);
 pub const tolerance = 1e-8;
 pub const tolerance_vec: Vec3 = @splat(1e-8);
 pub const pi = math.pi;
-pub const two_pi = 2 * math.pi;
-
+pub const two_pi = 2.0 * math.pi;
+pub const one_over_pi = 1.0 / pi;
 pub const zero: Vec3 = @splat(0);
-pub const one: Vec3 = @splat(1);
+
+pub const ones: Vec3 = @splat(1);

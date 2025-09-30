@@ -8,8 +8,8 @@ pub const Material = union(enum) {
             };
         }
 
-        fn scatter(_: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
-            var scatter_direction: Vec3 = hit.normal + vec.randomUnitVec(rand);
+        fn scatter(_: @This(), rng: *std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+            var scatter_direction: Vec3 = hit.normal + vec.randomUnitVec(rng);
 
             // Catch degenerate scatter direction.
             if (vec.nearZero(scatter_direction)) scatter_direction = hit.normal;
@@ -29,8 +29,8 @@ pub const Material = union(enum) {
             };
         }
 
-        fn scatter(self: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
-            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.direction, hit.normal)) + vec.scale(vec.randomUnitVec(rand), self.fuzz);
+        fn scatter(self: @This(), rng: *std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+            const reflected: Vec3 = vec.unit(vec.reflect(ray_in.direction, hit.normal)) + vec.scale(vec.randomUnitVec(rng), self.fuzz);
             return if (vec.dot(reflected, hit.normal) > 0) .initMoving(hit.p, reflected, ray_in.time) else null;
         }
     },
@@ -44,9 +44,9 @@ pub const Material = union(enum) {
                                // refractive index of the enclosing media.
 
         // zig fmt: on
-        fn scatter(self: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+        fn scatter(self: @This(), rng: *std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
             const refraction_index = if (hit.front_face)
-                1 / self.refraction_index
+                1.0 / self.refraction_index
             else
                 self.refraction_index;
 
@@ -57,10 +57,10 @@ pub const Material = union(enum) {
             const cannot_refract = refraction_index * sin_theta > 1;
             const reflectance = reflectanceSchlick(cos_theta, refraction_index);
 
-            const direction = if (cannot_refract or reflectance > vec.randomFloat(rand))
-                vec.reflect(unit_direction, hit.normal) // reflect
+            const direction = if (cannot_refract or reflectance > vec.randomFloat(rng))
+                vec.reflect(unit_direction, hit.normal)
             else
-                vec.refract(unit_direction, hit.normal, refraction_index); // refract
+                vec.refract(unit_direction, hit.normal, refraction_index);
 
             return .initMoving(hit.p, direction, ray_in.time);
         }
@@ -91,19 +91,19 @@ pub const Material = union(enum) {
             };
         }
 
-        fn scatter(_: @This(), rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+        fn scatter(_: @This(), rng: *std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
             return .{
                 .origin = hit.p,
-                .direction = vec.randomUnitVec(rand),
+                .direction = vec.randomUnitVec(rng),
                 .time = ray_in.time,
             };
         }
     },
 
-    pub fn scatter(self: Material, rand: std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
+    pub fn scatter(self: Material, rng: *std.Random, ray_in: Ray, hit: HitRecord) ?Ray {
         return switch (self) {
             .diffuse_light => null,
-            inline else => |m| m.scatter(rand, ray_in, hit),
+            inline else => |m| m.scatter(rng, ray_in, hit),
         };
     }
 

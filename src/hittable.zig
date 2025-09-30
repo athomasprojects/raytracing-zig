@@ -16,18 +16,24 @@ pub const Primitive = union(enum) {
     rotate: RotateY,
     constant_medium: ConstantMedium,
 
-    pub fn hit(self: *const Primitive, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+    pub fn hit(self: *const Primitive, rng: *std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
         return switch (self.*) {
             .sphere => |sphere| sphere.hit(ray, ray_interval),
             .quad => |quad| quad.hit(ray, ray_interval),
             .box => |box| box.hit(ray, ray_interval),
-            inline else => |prim| prim.hit(rand, ray, ray_interval),
+            inline else => |prim| prim.hit(rng, ray, ray_interval),
         };
     }
 
     pub fn bbox(self: *const Primitive) Aabb {
         return switch (self.*) {
             inline else => |prim| prim.bbox,
+        };
+    }
+
+    pub fn centroid(self: *const Primitive) Vec3 {
+        return switch (self.*) {
+            inline else => |prim| 0.5 * (prim.bbox.min + prim.bbox.max),
         };
     }
 };
@@ -94,8 +100,8 @@ const Sphere = struct {
         return .{
             .t = root,
             .p = p,
-            .u = (std.math.atan2(-vec.z(outward_unit_normal), vec.x(outward_unit_normal)) + vec.pi) / vec.two_pi,
-            .v = std.math.acos(-vec.y(outward_unit_normal)) / vec.pi,
+            .u = (std.math.atan2(-vec.z(outward_unit_normal), vec.x(outward_unit_normal)) + vec.pi) * 0.5 * vec.one_over_pi, // Multiplying by (0.5 / π) is the the same as dividing by (2·π).
+            .v = std.math.acos(-vec.y(outward_unit_normal)) * vec.one_over_pi,
             .normal = if (front_face) outward_unit_normal else -outward_unit_normal,
             .front_face = front_face,
             .material = self.material,
@@ -185,7 +191,7 @@ const Box = struct {
         const dy: Vec3 = .{ 0, vec.y(max - min), 0 };
         const dz: Vec3 = .{ 0, 0, vec.z(max - min) };
 
-        const sides = [_]Quad{
+        const sides = [6]Quad{
             .init(Point3{ vec.x(min), vec.y(min), vec.z(max) }, dx, dy, material), // front
             .init(Point3{ vec.x(max), vec.y(min), vec.z(max) }, -dz, dy, material), // right
             .init(Point3{ vec.x(max), vec.y(min), vec.z(min) }, -dx, dy, material), // back
@@ -227,7 +233,7 @@ const Translation = struct {
         };
     }
 
-    fn hit(self: Translation, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+    fn hit(self: Translation, rng: *std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
         // Move the ray backwards by the offset.
         const offset_ray: Ray = .initMoving(
             ray.origin - self.offset,
@@ -236,7 +242,7 @@ const Translation = struct {
         );
 
         // Determine whether an intersection exists along the offset ray (and if so, where).
-        var translated_hit: ?HitRecord = self.primitive.hit(rand, offset_ray, ray_interval) orelse return null;
+        var translated_hit: ?HitRecord = self.primitive.hit(rng, offset_ray, ray_interval) orelse return null;
 
         // Move the intersection point forwards by the offset.
         translated_hit.?.p += self.offset;
@@ -259,7 +265,7 @@ const RotateY = struct {
         const radians: f64 = std.math.degreesToRadians(angle_deg);
         const sin_theta = @sin(radians);
         const cos_theta = @cos(radians);
-        const bbox = primitive.bbox(); // Bounding box of the non-rotated primitive in world space.
+        const bbox = primitive.bbox(); // Bounding box of the un-rotated primitive in world space.
 
         var rotated_primitive: RotateY = .{
             .primitive = primitive,
@@ -294,7 +300,7 @@ const RotateY = struct {
         return rotated_primitive;
     }
 
-    fn hit(self: RotateY, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+    fn hit(self: RotateY, rand: *std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
         // Transform the ray from world space to object space.
         const rotated_ray: Ray = .{
             .origin = self.coordTransform(ray.origin, .from_world_to_object_space),
@@ -350,9 +356,9 @@ const ConstantMedium = struct {
         };
     }
 
-    fn hit(self: ConstantMedium, rand: std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
-        var entry_hit: HitRecord = self.boundary.hit(rand, ray, .universe) orelse return null;
-        var exit_hit: HitRecord = self.boundary.hit(rand, ray, .{ .min = entry_hit.t + 1e-4, .max = vec.infinity }) orelse return null;
+    fn hit(self: ConstantMedium, rng: *std.Random, ray: Ray, ray_interval: Interval) ?HitRecord {
+        var entry_hit: HitRecord = self.boundary.hit(rng, ray, .universe) orelse return null;
+        var exit_hit: HitRecord = self.boundary.hit(rng, ray, .{ .min = entry_hit.t + 1e-4, .max = vec.infinity }) orelse return null;
 
         if (entry_hit.t < ray_interval.min) entry_hit.t = ray_interval.min;
         if (exit_hit.t > ray_interval.max) exit_hit.t = ray_interval.max;
@@ -360,32 +366,31 @@ const ConstantMedium = struct {
         if (entry_hit.t >= exit_hit.t) return null;
         if (entry_hit.t < 0) entry_hit.t = 0;
 
-        const ray_length = vec.magnitude(ray.direction);
-        const dist_inside_boundary = (exit_hit.t - entry_hit.t) * ray_length;
-        const hit_dist = self.neg_inv_density * @log(vec.randomFloat(rand));
+        const ray_length: f64 = vec.magnitude(ray.direction);
+        const dist_inside_boundary: f64 = (exit_hit.t - entry_hit.t) * ray_length;
+        const hit_dist: f64 = self.neg_inv_density * @log(vec.randomFloat(rng));
 
         if (hit_dist > dist_inside_boundary) return null;
         const t = entry_hit.t + hit_dist / ray_length;
 
         // Compute the u, v texture coordinates to an interpolation between the entry and exit hits.
-        const weight = (t - entry_hit.t) / (exit_hit.t - entry_hit.t);
+        // const weight = (t - entry_hit.t) / (exit_hit.t - entry_hit.t);
 
         return HitRecord{
             .t = t,
             .p = ray.at(t),
             .normal = .{ 1, 0, 0 }, // This is arbitrary.
             .front_face = true, // Also arbitrary.
-            // .u = 0, // exit_hit.u,
-            // .v = 0, // exit_hit.v,
-            .u = entry_hit.u + weight * (exit_hit.u - entry_hit.u),
-            .v = entry_hit.v + weight * (exit_hit.v - entry_hit.v),
+            .u = 0, // exit_hit.u,
+            .v = 0, // exit_hit.v,
+            // .u = entry_hit.u + weight * (exit_hit.u - entry_hit.u),
+            // .v = entry_hit.v + weight * (exit_hit.v - entry_hit.v),
             .material = self.phase_function,
         };
     }
 };
 
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 const Aabb = @import("AxisAlignedBoundingBox.zig");
 const Interval = @import("Interval.zig");
