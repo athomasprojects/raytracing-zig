@@ -9,7 +9,6 @@ const default_bg_colour: Colour = .{ 0.7, 0.8, 1 };
 
 aspect_ratio: comptime_float, // Ratio of the image width to image height.
 image_width: comptime_int, // Rendered image width in pixel count.
-// samples_per_pixel: comptime_int, // Count of random samples for each pixel.
 vertical_fov_deg: comptime_float, // Vertical field of view (viewing angle), specified in degrees.
 look_from: Point3, // Point camera is looking from.
 look_at: Point3, // Point camera is looking from.
@@ -17,7 +16,7 @@ v_up: Vec3, // Camera-relative "up" direction.
 defocus_angle_deg: comptime_float, // Variation angle (in degrees) of rays through each pixel.
 focus_dist: comptime_float, // Distance from camera `look_from` point to plane of perfect focus.
 background_colour: Colour,
-max_recursion_depth: comptime_int = 50,
+max_bounces: comptime_int = 50,
 min_samples_per_pixel: comptime_int,
 max_samples_per_pixel: comptime_int,
 noise_threshold: Vec3, // Noise threshold for when to stop sampling. Relative error tolerance.
@@ -26,7 +25,6 @@ _center: Point3, // Camera center.
 _pixel00_loc: Point3, // Location of pixel (0,0).
 _pixel_delta_u: Vec3, // Offset to pixel to the right.
 _pixel_delta_v: Vec3, // Offset to pixel below.
-// _pixel_samples_scale: Vec3, // Colour scale factor for a sum of pixel samples.
 _u: Vec3, // Camera frame basis vector.
 _v: Vec3, // Camera frame basis vector.
 _w: Vec3, // Camera frame basis vector pointing along the viewing direction.
@@ -43,7 +41,8 @@ const Tile = struct {
 
 /// Tracks per-pixel statistics using Welford's variance estimation algorithm.
 ///
-/// See: [https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm]
+/// See:
+/// [https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm]
 const PixelStats = struct {
     num_samples: u32 = 0,
     mean: Vec3 = vec.zero, // Running colour estimate.
@@ -53,39 +52,23 @@ const PixelStats = struct {
         self.num_samples += 1;
         const delta = sample - self.mean;
 
-        // Normalizes the pixel colour value to [0,1].
+        // Normalize the pixel colour value to [0,1].
         self.mean += vec.divScalar(delta, @floatFromInt(self.num_samples));
 
         const delta2 = sample - self.mean;
         self.sum_of_squared_differences += delta * delta2;
     }
 
-    /// Returns the per-channel variance estimate.
+    /// Returns the per-channel pixel colour variance estimate.
     fn variance(self: PixelStats) Vec3 {
         if (self.num_samples < 2) return vec.zero;
         return vec.divScalar(self.sum_of_squared_differences, @floatFromInt(self.num_samples - 1));
     }
 };
 
-// const DebugRenderStats = struct {
-//     count: u64 = 0,
-//     sum: f64 = 0,
-//
-//     fn print(self: DebugRenderStats) void {
-//         std.debug.print("Average render recursion statistics:\n------------------------------------\n", .{});
-//         std.debug.print("Avg recursion depth: {d}\n", .{@max(
-//             0,
-//             self.sum / @as(f64, @floatFromInt(self.count)),
-//         )});
-//         std.debug.print("Total recursion depth: {d}\n", .{self.count});
-//         // std.debug.print("Total samples: {d}\n", .{self.total_samples});
-//     }
-// };
-
 pub fn init(
     aspect_ratio: comptime_float,
     image_width: comptime_float,
-    // samples_per_pixel: comptime_float,
     vertical_fov_deg: comptime_float,
     look_from: Vec3,
     look_at: Vec3,
@@ -121,7 +104,6 @@ pub fn init(
     const pixel_delta_v: Vec3 = vec.divScalar(viewport_v, image_height);
 
     // Calculate location of upper left pixel.
-    // const viewport_upper_left: Vec3 = camera_center - vec.scale(w, focus_dist) - vec.scale(viewport_u, 0.5) - vec.scale(viewport_v, 0.5);
     const viewport_upper_left: Vec3 = look_from - vec.scale(w, focus_dist) - vec.scale(viewport_u + viewport_v, 0.5);
     const pixel00_loc: Vec3 = viewport_upper_left + vec.scale(pixel_delta_u + pixel_delta_v, 0.5);
 
@@ -133,7 +115,6 @@ pub fn init(
     return .{
         .aspect_ratio = aspect_ratio,
         .image_width = image_width,
-        // .samples_per_pixel = samples_per_pixel,
         .vertical_fov_deg = vertical_fov_deg,
         .look_from = look_from,
         .look_at = look_at,
@@ -144,7 +125,6 @@ pub fn init(
         ._pixel00_loc = pixel00_loc,
         ._pixel_delta_u = pixel_delta_u,
         ._pixel_delta_v = pixel_delta_v,
-        // ._pixel_samples_scale = vec.splat(1.0 / samples_per_pixel),
         ._w = w,
         ._u = u,
         ._v = v,
@@ -170,8 +150,8 @@ pub fn render(
     var global_seed: u64 = undefined;
     try std.posix.getrandom(std.mem.asBytes(&global_seed));
 
-    const TILE_W: usize = 4;
-    const TILE_H: usize = 4;
+    const TILE_W: usize = 8;
+    const TILE_H: usize = 8;
     const num_tiles_x = (self.image_width + TILE_W - 1) / TILE_W;
     const num_tiles_y = (self._image_height + TILE_H - 1) / TILE_H;
     const total_tile_count = num_tiles_x * num_tiles_y;
@@ -206,23 +186,6 @@ pub fn render(
                 .seed = global_seed ^ (tx << 32) ^ ty,
             };
             tile_idx += 1;
-
-            // Previous tile-based mutex protected queue rendering:
-            // const tile_seed: u64 = global_seed ^ (tx << 32) ^ ty;
-            //
-            // pool.spawnWg(&wg, Camera.renderTile, .{
-            //     self,
-            //     tile_seed,
-            //     x0,
-            //     y0,
-            //     x1,
-            //     y1,
-            //     bvh,
-            //     primitives,
-            //     tex_buf,
-            //     image_buffer,
-            //     progress_node,
-            // });
         }
     }
 
@@ -232,30 +195,17 @@ pub fn render(
 
     var wg: std.Thread.WaitGroup = .{};
 
-    // The queue state is an index into `tiles` that workers will increment
-    // atomically under a mutex.
-    // var queue_index: usize = 0;
-    // var queue_mutex = std.Thread.Mutex{};
-
     var tile_counter: std.atomic.Value(usize) = .init(0);
-
-    // var global_recursion_stats: DebugRenderStats = .{}; // null,
-    // var rec_depth_mutex: std.Thread.Mutex = .{};
-
     for (0..pool.threads.len) |_| {
         pool.spawnWg(&wg, Camera.worker, .{
             self,
             tiles,
             &tile_counter,
-            // &queue_index,
-            // &queue_mutex,
             bvh,
             primitives,
             tex_buf,
             image_buffer,
             progress_node,
-            // &global_recursion_stats,
-            // &rec_depth_mutex,
         });
     }
 
@@ -270,9 +220,6 @@ pub fn render(
     );
     try file_out.writeSliceEndian(u8, std.mem.sliceAsBytes(image_buffer), .little);
     try file_out.flush();
-
-    // Debug:
-    // global_recursion_stats.print();
 }
 
 /// Repeatedly pops the index of the next tile to be rendered from the queue of
@@ -282,15 +229,11 @@ fn worker(
     self: Camera,
     tiles: []Tile,
     tile_counter_ptr: *std.atomic.Value(usize),
-    // queue_index_ptr: *usize,
-    // queue_mutex: *std.Thread.Mutex,
     bvh: *Bvh,
     primitives: []const Primitive,
     tex_buf: []const Texture,
     image_buffer: [][3]u8,
     progress_node: std.Progress.Node,
-    // global_recursion_stats: ?*DebugRenderStats,
-    // rec_depth_mutex: *std.Thread.Mutex,
 ) void {
     while (true) {
         // Fetch the next tile index.
@@ -309,36 +252,7 @@ fn worker(
             tex_buf,
             image_buffer,
             progress_node,
-            // global_recursion_stats,
-            // rec_depth_mutex,
         );
-
-        // var current_tile: ?Tile = null;
-        //
-        // // Pop the next tile index (protected by mutex)
-        // queue_mutex.lock();
-        // if (queue_index_ptr.* < tiles.len) {
-        //     const idx = queue_index_ptr.*;
-        //     queue_index_ptr.* += 1;
-        //     current_tile = tiles[idx];
-        // }
-        //
-        // queue_mutex.unlock();
-        // if (current_tile == null) break;
-        //
-        // const t = current_tile.?;
-        // self.renderTile(
-        //     t.seed,
-        //     t.x0,
-        //     t.y0,
-        //     t.x1,
-        //     t.y1,
-        //     bvh,
-        //     primitives,
-        //     tex_buf,
-        //     image_buffer,
-        //     progress_node,
-        // );
     }
 }
 
@@ -354,102 +268,47 @@ fn renderTile(
     tex_buf: []const Texture,
     image_buffer: [][3]u8,
     progress_node: std.Progress.Node,
-    // global_recursion_stats: ?*DebugRenderStats,
-    // rec_depth_mutex: *std.Thread.Mutex,
 ) void {
     defer progress_node.completeOne();
 
-    // Debug:
     // Seed PRNG for this tile. Each thread gets its own PRNG.
     var prng = std.Random.DefaultPrng.init(tile_seed);
     var tile_rng = prng.random();
 
-    // var avg_tile_rec_depth_count: u64 = 0;
-    // var avg_tile_rec_depth_accum: f64 = 0;
-
-    // TODO: Not sure about this variance early termination algorithm. It might
-    // be resulting in artefacts in the final rendered image. The light source
-    // quad never fully renders as white for some reason. Moreover, There are
-    // these weird magenta pixels beneath the glass sphere and there are also
-    // completely black pixels in both the perlin noise sphere and the white
-    // spheres that make up the cube.
-    //
-    // Try rendering the scene with just the light source and background (no
-    // floor, or other spheres) and see if the light source renders correctly.
-
     for (y0..y1) |row| {
         for (x0..x1) |col| {
-            // Adaptive sampling.
+            // Compute pixel colour using adaptive sampling.
             var pixel_noise_stats: PixelStats = .{};
-            // var pixel_rec_depth_accum: u64 = 0; // Per-pixel recursion depth accumulator. Stores the total number of recursions for all samples of the current pixel.
 
             while (pixel_noise_stats.num_samples < self.max_samples_per_pixel) {
-                // var sample_rec_depth_counter: u64 = 0;
-
                 const ray = self.getRay(&tile_rng, @floatFromInt(col), @floatFromInt(row));
-                const sample = self.rayColour(&tile_rng, ray, 0, bvh, primitives, tex_buf);
+                const sample = self.rayColour(&tile_rng, ray, bvh, primitives, tex_buf);
 
                 pixel_noise_stats.update(sample);
 
-                // pixel_rec_depth_accum += sample_rec_depth_counter; // Accumulate current sample recursion depth.
-
                 if (pixel_noise_stats.num_samples >= self.min_samples_per_pixel) {
                     const std_dev = @sqrt(vec.divScalar(pixel_noise_stats.variance(), @floatFromInt(pixel_noise_stats.num_samples)));
-                    const pixel_noise = @max(pixel_noise_stats.mean / std_dev, vec.zero);
+                    const pixel_noise = @max(vec.zero, pixel_noise_stats.mean / std_dev);
 
                     // Pixel colour has converged.
                     if (@reduce(.And, pixel_noise < self.noise_threshold)) break;
                 }
             }
 
-            // avg_tile_rec_depth_count += 1;
-            //
-            // avg_tile_rec_depth_accum += @as(f64, @floatFromInt(pixel_rec_depth_accum)) /
-            //     @as(f64, @floatFromInt(pixel_noise_stats.num_samples));
-
-            const img_idx = row * self.image_width + col; // Convert 2D pixel tile coordinate to 1D image buffer index.
+            // Convert 2D pixel tile coordinate to 1D image buffer index.
+            const img_idx = row * self.image_width + col;
 
             // Transform the normalized pixel colour from a linear to gamma
             // colour space using the gamma 2 transform.
             const r_byte, const g_byte, const b_byte = vec.splat(255.999) * @sqrt(@max(pixel_noise_stats.mean, vec.zero));
 
             image_buffer[img_idx] = .{
-                @intFromFloat(r_byte), // r-byte
-                @intFromFloat(g_byte), // g-byte
-                @intFromFloat(b_byte), // b-byte
+                @intFromFloat(r_byte),
+                @intFromFloat(g_byte),
+                @intFromFloat(b_byte),
             };
-
-            // Previous tile-based rendering:
-            // var pixel_colour = vec.zero;
-            //
-            // for (0..self.samples_per_pixel) |_| {
-            //     const ray = self.getRay(&tile_rng, @floatFromInt(col), @floatFromInt(row));
-            //     pixel_colour += self.rayColour(&tile_rng, ray, 0, bvh, primitives, tex_buf);
-            // }
-            //
-            // // Normalize the pixel colour value to [0,1].
-            // pixel_colour *= self._pixel_samples_scale;
-            //
-            // Transform the pixel colour from a linear to gamma colour space using
-            // the gamma 2 transform.
-            // const r_byte, const g_byte, const b_byte = vec.splat(255.999) * @sqrt(@max(pixel_colour, vec.zero));
-            //
-            // Translate the [0, 1.0] pixel rgb colour component to the byte range
-            // [0, 255], and wrote the components to the scanline buffer.
-            // image_buffer[img_idx] = .{
-            //     @intFromFloat(r_byte), // r-byte
-            //     @intFromFloat(g_byte), // g-byte
-            //     @intFromFloat(b_byte), // b-byte
-            // };
         }
     }
-
-    // if (global_recursion_stats) |rec_stats| {
-    //     rec_depth_mutex.lock();
-    //     rec_stats.count += avg_tile_rec_depth_count;
-    //     rec_stats.sum += avg_tile_rec_depth_accum;
-    //     rec_depth_mutex.unlock();
-    // }
 }
 
 /// Constructs a camera ray originating from the defocus disk and directed at a
@@ -488,35 +347,41 @@ fn rayColour(
     self: Camera,
     rng: *std.Random,
     ray: Ray,
-    depth: comptime_int,
     bvh: *Bvh,
     primitives: []const Primitive,
     tex_buf: []const Texture,
 ) Colour {
     @setFloatMode(.optimized);
 
-    // TODO(amanda): Use iterative loop instead of recursion.
+    var current_ray = ray;
+    var colour_accum: Colour = vec.zero;
+    var running_attenuation: Colour = vec.ones;
 
-    // If we've exceeded the ray bounce limit, no more light is gathered.
-    if (depth == self.max_recursion_depth) return vec.zero;
+    const interval: Interval = .{ .min = 0.001, .max = vec.infinity };
 
-    const interval: Interval = .{
-        .min = 0.001,
-        .max = vec.infinity,
-    };
-    if (bvh.stackHit(rng, primitives, ray, interval)) |optional_hit| {
+    var bounces_left: usize = self.max_bounces;
+    while (bounces_left > 0) : (bounces_left -= 1) {
+        // Error path: e.g., BVH traversal failure.
+        const optional_hit = bvh.stackHit(rng, primitives, current_ray, interval) catch {
+            return .{ 1, 0, 1 }; // magenta
+        };
+
         if (optional_hit) |hit| {
-            const colour_from_emission = hit.material.emittedColour(hit.u, hit.v, hit.p, tex_buf);
-            const scattered_ray = hit.material.scatter(rng, ray, hit) orelse return colour_from_emission;
+            const colour_from_emitted = hit.material.emittedColour(hit.u, hit.v, hit.p, tex_buf);
+            colour_accum += running_attenuation * colour_from_emitted;
 
-            const colour_from_scatter = hit.material.attenuation(hit, tex_buf) *
-                self.rayColour(rng, scattered_ray, depth + 1, bvh, primitives, tex_buf);
+            const scattered_ray = hit.material.scatter(rng, current_ray, hit) orelse break;
 
-            return colour_from_emission + colour_from_scatter;
+            // Update attenuation along this path.
+            running_attenuation *= hit.material.attenuation(hit, tex_buf);
+            current_ray = scattered_ray;
+        } else {
+            colour_accum += running_attenuation * self.background_colour;
+            break;
         }
-    } else |_| return .{ 0, 1, 1 };
+    }
 
-    return self.background_colour;
+    return colour_accum;
 }
 
 pub const bouncing_spheres: Camera = .init(
@@ -559,8 +424,8 @@ pub const earth: Camera = .init(
     default_defocus_angle_deg,
     default_focus_dist,
     default_bg_colour,
+    null, // null,
     1000, // null,
-    15000, // null,
     null,
 );
 
@@ -624,7 +489,7 @@ pub const final: Camera = blk: {
         null,
         null,
     );
-    c.max_recursion_depth = 40;
+    c.max_bounces = 50;
     break :blk c;
 };
 

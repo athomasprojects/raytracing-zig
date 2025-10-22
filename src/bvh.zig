@@ -36,15 +36,18 @@ pub const Bvh = struct {
 
     /// Returns the bounding volume hierarchy of `primitives`.
     ///
-    /// The node buffer determines the tree capacity. Nodes and object
-    /// primitive indices are stored in externally initialized and managed
-    /// memory.
-    pub fn build(node_buf: []Node, index_buf: []u32, primitives: []const Primitive, scratch: []Aabb) !Bvh {
+    /// The `node_buf` determines the tree capacity. Nodes and primitive
+    /// indices are stored in externally initialized and managed memory.
+    ///
+    /// `scratch` is a buffer used to store intermediate node bounding box
+    /// values during tree construction. It should have a maximum capacity of
+    /// (2N - 1).
+    pub fn build(node_buf: []Node, primitives: []const Primitive, indices: []u32, scratch: []Aabb) !Bvh {
         var bvh: Bvh = .initBuffer(node_buf);
         if (primitives.len == 0) return bvh;
 
-        if (index_buf.len < primitives.len) return error.OutOfMemory;
-        for (0..index_buf.len) |idx| index_buf[idx] = @intCast(idx);
+        if (indices.len < primitives.len) return error.OutOfMemory;
+        for (0..indices.len) |idx| indices[idx] = @intCast(idx);
 
         // DEBUG: Visualize tree traversal during formation.
         // std.debug.print("depth, (start, end), nodes:\n", .{});
@@ -52,7 +55,7 @@ pub const Bvh = struct {
 
         bvh.root = try bvh.buildRange(
             primitives,
-            index_buf,
+            indices,
             0,
             primitives.len,
             0,
@@ -61,22 +64,22 @@ pub const Bvh = struct {
         );
 
         // DEBUG:
-        // const nodes = bvh.nodes.list;
-        // var num_leaves: u32 = 0;
-        // for (nodes.items) |node| {
-        //     if (node.data) |_| {
-        //         num_leaves += 1;
-        //     }
-        // }
-        // std.debug.print("\nBVH Summary\n===========\n", .{});
-        // std.debug.print("Total nodes: {d}\n", .{nodes.items.len});
-        // std.debug.print("Total leaves: {d}\n", .{num_leaves});
-        // std.debug.print("Total internal nodes: {d}\n", .{nodes.items.len - num_leaves});
-        // std.debug.print("Max subtree depth: {d}\n", .{dbg_stats.max_depth});
-        // std.debug.print(
-        //     "Avg subtree depth: {d}\n",
-        //     .{@as(f32, @floatFromInt(dbg_stats.total_depth)) / @as(f32, @floatFromInt(nodes.items.len))},
-        // );
+        const nodes = bvh.nodes.list;
+        var num_leaves: u32 = 0;
+        for (nodes.items) |node| {
+            if (node.data) |_| {
+                num_leaves += 1;
+            }
+        }
+        std.debug.print("\nBVH Summary\n===========\n", .{});
+        std.debug.print("Total nodes: {d}\n", .{nodes.items.len});
+        std.debug.print("Total leaves: {d}\n", .{num_leaves});
+        std.debug.print("Total internal nodes: {d}\n", .{nodes.items.len - num_leaves});
+        std.debug.print("Max subtree depth: {d}\n", .{dbg_stats.max_depth});
+        std.debug.print(
+            "Avg subtree depth: {d}\n",
+            .{@as(f32, @floatFromInt(dbg_stats.running_depth)) / @as(f32, @floatFromInt(nodes.items.len))},
+        );
 
         return bvh;
     }
@@ -88,31 +91,32 @@ pub const Bvh = struct {
     /// can never have more than (2N - 1) nodes, where N is the number of
     /// primitives.
     ///
-    /// Our current implementation always produces tree with the
-    /// maximum possible number of nodes.
+    /// Our current implementation always produces tree with the maximum
+    /// possible number of nodes.
     ///
-    /// `scratch` is a temporary buffer used to store intermediate node
-    /// bounding box computations during tree construction. It should have a
-    /// maximum capacity of (2N - 1).
+    /// Primitive indices are stored in a temporary heap-allocated buffer that
+    /// is deallocated at function exit.
     ///
-    /// Object primitive indices are stored in a temporary heap-allocated
-    /// buffer that is deallocated at function exit.
-    pub fn buildAllocating(gpa: std.mem.Allocator, primitives: []const Primitive, scratch: []Aabb) !Bvh {
+    /// During construction intermediate node bounding box values are stored in
+    /// a temporary heap-allocated scratch buffer that is deallocated at
+    /// function exit.
+    pub fn buildAllocating(gpa: std.mem.Allocator, primitives: []const Primitive) !Bvh {
         var bvh: Bvh = try .initCapacity(gpa, 2 * primitives.len - 1);
 
         if (primitives.len == 0) return bvh;
 
         var indices = try gpa.alloc(u32, primitives.len);
-        defer gpa.free(indices);
+        var scratch = try gpa.alloc(Aabb, 2 * primitives.len);
+        defer {
+            gpa.free(indices);
+            gpa.free(scratch);
+        }
 
         for (0..indices.len) |idx| indices[idx] = @intCast(idx);
 
         // DEBUG: Visualize tree traversal during formation.
         // std.debug.print("depth, (start, end), nodes:\n", .{});
         // std.debug.print("===========================\n", .{});
-
-        // var scratch = try gpa.alloc(Aabb, 2 * primitives.len);
-        // defer gpa.free(scratch);
 
         bvh.root = try bvh.buildRange(
             primitives,
@@ -274,9 +278,9 @@ pub const Bvh = struct {
     // NOTE: For a binary BVH, the maximum depth is ~2*log2(N) for N
     // primitives.
     //
-    // For 1_000_000 primitives, the BVH depth is ~40, so a stack size of 128
-    // is usually safe. We can choose a safety factor of 4-5x to make stack
-    // overflow highly unlikely.
+    // For 1_000_000 primitives, the maximum BVH depth is ~40, so a stack size
+    // of 128 is usually safe. We can choose a safety factor of 4-5x to make
+    // stack overflow highly unlikely.
     pub fn stackHit(self: *Bvh, rng: *std.Random, primitives: []const Primitive, ray: Ray, ray_interval: Interval) !?HitRecord {
         if (self.root == null) return null;
 
@@ -306,15 +310,13 @@ pub const Bvh = struct {
 
                         const split_axis = node.bbox.longestAxis();
 
-                        // Only swap if both children exist and the ray
-                        // direction is negative.
+                        // Only swap if both children exist and the ray direction is negative.
                         if (ray.direction[split_axis] < 0.0) {
                             near_child = right_link;
                             far_child = left_link;
                         }
 
-                        // Push _far_ then _near_ child, so the nearest child
-                        // is popped next.
+                        // Push _far_ then _near_ child, so the nearest child is popped next.
                         try stack.list.appendBounded(far_child);
                         try stack.list.appendBounded(near_child);
                     } else {

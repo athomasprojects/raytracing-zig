@@ -9,17 +9,14 @@ pub fn main() !void {
     var prng = std.Random.DefaultPrng.init(seed);
     var rng = prng.random();
 
-    // var prng = std.Random.DefaultPrng.init(seed);
     const ppm_dir = "images/the-next-week/";
-    const ppm_fname = "final_box.ppm";
+    const ppm_fname = "final_scene_earth.ppm";
     const path = ppm_dir ++ ppm_fname;
 
-    // Create or open ppm file.
     const file = try std.fs.cwd().createFile(path, .{ .read = true });
     defer file.close();
     errdefer file.close();
 
-    // Get file writer interface.
     var file_buffer: [4096]u8 = undefined;
     var file_writer = file.writer(&file_buffer);
     const file_out = &file_writer.interface;
@@ -62,15 +59,12 @@ pub fn main() !void {
 
 fn finalScene(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Random) !void {
     // Allocate all required memory for scene primitives and the BVH up front.
-    const total_scene_prim_count = 434;
-    const tiny_sphere_count = 100;
+    const total_scene_prim_count = 834; // 434;
+    const tiny_sphere_count = 500;
     var cube_of_spheres_buf = try gpa.alloc(Primitive, 3 * tiny_sphere_count);
     var scene: util.BoundedList(Primitive) = try .initCapacity(gpa, total_scene_prim_count);
-    var scratch: []Aabb = try gpa.alloc(Aabb, 2 * total_scene_prim_count);
-    _ = &scratch;
     defer {
         scene.deinit(gpa);
-        gpa.free(scratch);
         gpa.free(cube_of_spheres_buf);
     }
 
@@ -83,15 +77,14 @@ fn finalScene(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Ra
     // var node_buf: [2 * total_scene_prim_count - 1]bvh.Node = undefined;
     // var indices: [total_scene_prim_count]u32 = undefined;
 
-    // Materials
     const ground: Material = .{ .lambertian = .fromAlbedo(.{ 0.48, 0.83, 0.53 }) };
-    // // const light: Material = .{ .diffuse_light = .fromEmittedColour(vec.splat(1)) };
+    const light: Material = .{ .diffuse_light = .fromEmittedColour(vec.splat(1)) };
     const dielectric: Material = .{ .dielectric = .{ .albedo = vec.splat(1), .refraction_index = 1.5 } };
 
     var earth_texture: Texture = .{ .image = try .init("./images/earthmap.jpg", null) };
     defer earth_texture.deinitImage();
 
-    // Create scene floor blocks.
+    // Create scene ground blocks.
     const boxes_per_side = 18;
     for (0..boxes_per_side) |i| {
         for (0..boxes_per_side) |j| {
@@ -116,7 +109,7 @@ fn finalScene(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Ra
                 Point3{ 123, 554, 147 },
                 Vec3{ 300, 0, 0 },
                 Vec3{ 0, 0, 265 },
-                .{ .diffuse_light = .fromEmittedColour(vec.splat(1)) }, // Light source (setting the colour to {7,7,7} results in greyish light).
+                light,
             ),
         },
         .{ .sphere = .initMoving(
@@ -157,15 +150,15 @@ fn finalScene(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Ra
         const rot_idx = tiny_sphere_count + i;
         const trans_idx = translation_offset + i;
 
-        cube_of_spheres_buf[i] = .{ .sphere = .init(vec.randomVecInRange(rng, 0, 165), 15, white) };
+        cube_of_spheres_buf[i] = .{ .sphere = .init(vec.randomVecInRange(rng, 0, 165), 10, white) };
         cube_of_spheres_buf[rot_idx] = .{ .rotate = .init(&cube_of_spheres_buf[i], 15) };
         cube_of_spheres_buf[trans_idx] = .{ .translate = .init(&cube_of_spheres_buf[rot_idx], Vec3{ -100, 270, 395 }) };
     }
     try scene.list.appendSliceBounded(cube_of_spheres_buf[translation_offset..]);
 
     {
-        // var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, scene.list.items, &scratch);
-        var scene_bvh: bvh.Bvh = try .buildAllocating(gpa, scene.list.items, scratch);
+        // var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, scene.list.items);
+        var scene_bvh: bvh.Bvh = try .buildAllocating(gpa, scene.list.items);
         defer scene_bvh.deinit(gpa);
 
         const cam: Camera = .final;
@@ -173,7 +166,6 @@ fn finalScene(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.Ra
 
         errdefer {
             scene_bvh.deinit(gpa);
-            scratch.deinit(gpa);
             scene.deinit(gpa);
             earth_texture.deinitImageTexture();
             gpa.free(cube_of_spheres_buf);
@@ -254,7 +246,7 @@ fn cornellBox(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     });
 
     var scratch: [prim_count * 2]Aabb = undefined;
-    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, primitives.list.items, &indices, &scratch);
     _ = &scene_bvh;
     scratch = undefined;
 
@@ -288,7 +280,7 @@ fn simpleLight(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std.R
     });
 
     var scratch: [prim_count * 2]Aabb = undefined;
-    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, primitives.list.items, &indices, &scratch);
 
     const cam: Camera = .simple_light;
     try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
@@ -314,7 +306,7 @@ fn quads(file_out: *Writer, comptime tex_buf: []const Texture) !void {
         .{ .quad = .init(Point3{ -2, 3, 1 }, Vec3{ 4, 0, 0 }, Vec3{ 0, 0, 4 }, upper_orange) },
         .{ .quad = .init(Point3{ -2, -3, 5 }, Vec3{ 4, 0, 0 }, Vec3{ 0, 0, -4 }, lower_teal) },
     });
-    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items);
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, primitives.list.items, &indices);
 
     const cam: Camera = .quads;
     try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
@@ -342,7 +334,7 @@ fn perlinSpheres(file_out: *Writer, comptime tex_buf: []const Texture, rng: *std
     });
 
     var scratch: [prim_count * 2]Aabb = undefined;
-    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, primitives.list.items, &indices, &scratch);
 
     const cam: Camera = .checker;
     try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
@@ -367,7 +359,7 @@ fn earth(file_out: *Writer, comptime tex_buf: []const Texture) !void {
     });
 
     var scratch: [prim_count * 2]Aabb = undefined;
-    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, primitives.list.items, &indices, &scratch);
 
     const cam: Camera = .earth;
     try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
@@ -394,8 +386,8 @@ fn checkeredSpheres(file_out: *Writer, comptime tex_buf: []const Texture) !void 
     var primitives: util.BoundedList(Primitive) = .init(&prim_buf);
     try primitives.list.appendSliceBounded(&spheres);
 
-    var scratch: [primitives.len * 2]Aabb = undefined;
-    var scene_bvh: bvh.Bvh = try .build(&node_buf, &indices, primitives.list.items, &scratch);
+    var scratch: [spheres.len * 2]Aabb = undefined;
+    var scene_bvh: bvh.Bvh = try .build(&node_buf, primitives.list.items, &indices, &scratch);
 
     const cam: Camera = .checker;
     try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
@@ -482,13 +474,12 @@ fn bouncingSpheres(file_out: *Writer, max_capacity: usize, comptime tex_buf: []c
         ) },
     });
 
-    var scene_bvh: bvh.Bvh = try .buildAllocating(gpa, primitives.list.items, scratch);
+    var scene_bvh: bvh.Bvh = try .buildAllocating(gpa, primitives.list.items);
     defer scene_bvh.deinit(gpa);
 
     const cam: Camera = .bouncing_spheres;
     try cam.render(file_out, &scene_bvh, primitives.list.items, tex_buf);
     errdefer {
-        gpa.free(scratch);
         primitives.deinit(gpa);
         scene_bvh.deinit(gpa);
     }
